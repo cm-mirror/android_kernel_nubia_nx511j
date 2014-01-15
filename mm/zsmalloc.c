@@ -81,7 +81,6 @@
 #include <linux/bitops.h>
 #include <linux/errno.h>
 #include <linux/highmem.h>
-#include <linux/init.h>
 #include <linux/string.h>
 #include <linux/slab.h>
 #include <asm/tlbflush.h>
@@ -143,7 +142,7 @@
 #define ZS_MAX_ALLOC_SIZE	PAGE_SIZE
 
 /*
- * On systems with 4K page size, this gives 254 size classes! There is a
+ * On systems with 4K page size, this gives 255 size classes! There is a
  * trader-off here:
  *  - Large number of size classes is potentially wasteful as free page are
  *    spread across these classes
