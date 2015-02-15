@@ -1557,10 +1557,10 @@ void kgsl_dump_syncpoints(struct kgsl_device *device,
 			break;
 		}
 		case KGSL_CMD_SYNCPOINT_TYPE_FENCE:
-			if (event->handle)
+			if (event->handle && event->handle->fence)
 				dev_err(device->dev, "  fence: [%p] %s\n",
 					event->handle->fence,
-					event->handle->name);
+					event->handle->fence->name);
 			else
 				dev_err(device->dev, "  fence: invalid\n");
 			break;
@@ -1809,9 +1809,12 @@ EXPORT_SYMBOL(kgsl_cmdbatch_destroy);
 static void kgsl_cmdbatch_sync_fence_func(void *priv)
 {
 	struct kgsl_cmdbatch_sync_event *event = priv;
+	char *name = "unknown";
 
-	trace_syncpoint_fence_expire(event->cmdbatch,
-		event->handle ? event->handle->name : "unknown");
+	if (event->handle && event->handle->fence)
+		name = event->handle->fence->name;
+
+	trace_syncpoint_fence_expire(event->cmdbatch, name);
 
 	kgsl_cmdbatch_sync_expire(event->device, event);
 	/* Put events that have signaled */
@@ -1873,10 +1876,9 @@ static int kgsl_cmdbatch_add_sync_fence(struct kgsl_device *device,
 	event->handle = kgsl_sync_fence_async_wait(sync->fd,
 		kgsl_cmdbatch_sync_fence_func, event);
 
+
 	if (IS_ERR_OR_NULL(event->handle)) {
 		int ret = PTR_ERR(event->handle);
-
-		event->handle = NULL;
 
 		/* Failed to add the event to the async callback */
 		kgsl_cmdbatch_sync_event_put(event);
@@ -1900,7 +1902,7 @@ static int kgsl_cmdbatch_add_sync_fence(struct kgsl_device *device,
 		return ret;
 	}
 
-	trace_syncpoint_fence(cmdbatch, event->handle->name);
+	trace_syncpoint_fence(cmdbatch, event->handle->fence->name);
 
 	/*
 	 * Event was successfully added to the synclist, the async
