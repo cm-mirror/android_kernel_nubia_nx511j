@@ -981,9 +981,6 @@ static void sdhci_msm_set_mmc_drv_type(struct sdhci_host *host, u32 opcode,
 			drv_type);
 }
 
-#define CORE_VENDOR_SPEC_FUNC2 0x110
-#define ONE_MID_EN	(1 << 25)
-
 int sdhci_msm_execute_tuning(struct sdhci_host *host, u32 opcode)
 {
 	unsigned long flags;
@@ -1056,9 +1053,6 @@ retry:
 			.data = &data
 		};
 		struct scatterlist sg;
-
-		writel_relaxed((readl_relaxed(host->ioaddr + CORE_VENDOR_SPEC_FUNC2) | ONE_MID_EN),
-				host->ioaddr + CORE_VENDOR_SPEC_FUNC2);
 
 		/* set the phase in delay line hw block */
 		rc = msm_config_cm_dll_phase(host, phase);
@@ -1166,8 +1160,6 @@ out:
 	if (!rc)
 		msm_host->tuning_done = true;
 	spin_unlock_irqrestore(&host->lock, flags);
-	writel_relaxed((readl_relaxed(host->ioaddr + CORE_VENDOR_SPEC_FUNC2) & ~ONE_MID_EN),
-			host->ioaddr + CORE_VENDOR_SPEC_FUNC2);
 	pr_debug("%s: Exit %s, err(%d)\n", mmc_hostname(mmc), __func__, rc);
 	return rc;
 }
@@ -2873,8 +2865,6 @@ void sdhci_msm_dump_vendor_regs(struct sdhci_host *host)
 		readl_relaxed(host->ioaddr + CORE_VENDOR_SPEC),
 		readl_relaxed(host->ioaddr + CORE_VENDOR_SPEC_ADMA_ERR_ADDR0),
 		readl_relaxed(host->ioaddr + CORE_VENDOR_SPEC_ADMA_ERR_ADDR1));
-	pr_info("Vndr func2: 0x%08x\n",
-		readl_relaxed(host->ioaddr + CORE_VENDOR_SPEC_FUNC2));
 
 	/*
 	 * tbsel indicates [2:0] bits and tbsel2 indicates [7:4] bits
