@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1446,11 +1446,12 @@ static int venus_hfi_halt_axi(struct venus_hfi_device *device)
 	 * Driver needs to make sure that clocks are enabled to read Venus AXI
 	 * registers. If not skip AXI HALT.
 	 */
-    if (device->clk_state != ENABLED_PREPARED) {
+	if (device->clk_state != ENABLED_PREPARED) {
 		dprintk(VIDC_WARN,
-		"Clocks are OFF, skipping AXI HALT\n");
+			"Clocks are OFF, skipping AXI HALT\n");
 		return -EINVAL;
 	}
+
 	/* Halt AXI and AXI OCMEM VBIF Access */
 	reg = venus_hfi_read_register(device, VENUS_VBIF_AXI_HALT_CTRL0);
 	reg |= VENUS_VBIF_AXI_HALT_CTRL0_HALT_REQ;
@@ -1480,13 +1481,13 @@ static inline int venus_hfi_power_off(struct venus_hfi_device *device)
 		dprintk(VIDC_DBG, "Power already disabled\n");
 		return 0;
 	}
-	
+
 	rc = venus_hfi_halt_axi(device);
 	if (rc) {
 		dprintk(VIDC_WARN, "Failed to halt AXI\n");
 		return 0;
 	}
-	
+
 	dprintk(VIDC_DBG, "Entering power collapse\n");
 	rc = venus_hfi_tzbsp_set_video_state(TZBSP_VIDEO_STATE_SUSPEND);
 	if (rc) {
@@ -3109,7 +3110,7 @@ static void venus_hfi_pm_hndlr(struct work_struct *work)
 		dprintk(VIDC_ERR, "Failed venus power off\n");
 		goto err_power_off;
 	}
-	
+
 	/* Cancel pending delayed works if any */
 	cancel_delayed_work(&venus_hfi_pm_work);
 
@@ -3120,11 +3121,11 @@ err_power_off:
 skip_power_off:
 
 	/*
-		* When power collapse is escaped, driver no need to inform Venus.
-		* Venus is self-sufficient to come out of the power collapse at
-		* any stage. Driver can skip power collapse and continue with
-		* normal execution.
-		*/
+	* When power collapse is escaped, driver no need to inform Venus.
+	* Venus is self-sufficient to come out of the power collapse at
+	* any stage. Driver can skip power collapse and continue with
+	* normal execution.
+	*/
 
 	/* Cancel pending delayed works if any */
 	cancel_delayed_work(&venus_hfi_pm_work);
