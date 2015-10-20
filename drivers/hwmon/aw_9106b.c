@@ -907,7 +907,7 @@ static ssize_t set_fade_parameter(struct device *dev,
 }
 
 //path: sys/class/leds/red/
-const static DEVICE_ATTR(fade_parameter, S_IRUGO | S_IWUSR,
+const static DEVICE_ATTR(fade, S_IRUGO | S_IWUSR,
 		show_fade_parameter, set_fade_parameter);
 
 //grade_parameter
@@ -953,7 +953,7 @@ static ssize_t set_outn(struct device *dev,
 	return count;
 }
 //path: sys/class/leds/red/
-const static DEVICE_ATTR(outn, S_IRUGO | S_IWUSR,
+const static DEVICE_ATTR(out, S_IRUGO | S_IWUSR,
 		show_outn, set_outn);
 
 static int led_config;
@@ -1165,7 +1165,7 @@ static int  aw9106b_probe(struct i2c_client *client,
 		goto init_fail;
 	}
 
-	ret = device_create_file(breath_led.dev, &dev_attr_fade_parameter);
+	ret = device_create_file(breath_led.dev, &dev_attr_fade);
 	if (unlikely(ret < 0)) {
 		dev_err(breath_led.dev, "failed: cannot create fade_parameter.\n");
 	}
@@ -1175,7 +1175,7 @@ static int  aw9106b_probe(struct i2c_client *client,
 		dev_err(breath_led.dev, "failed: cannot create grade_parameter.\n");
 	}
 
-	ret = device_create_file(breath_led.dev, &dev_attr_outn);
+	ret = device_create_file(breath_led.dev, &dev_attr_out);
 	if (unlikely(ret < 0)) {
 		dev_err(breath_led.dev, "failed: cannot create outn.\n");
 	}
