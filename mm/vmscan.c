@@ -3442,7 +3442,7 @@ void wakeup_kswapd(struct zone *zone, int order, enum zone_type classzone_idx)
 	wake_up_interruptible(&pgdat->kswapd_wait);
 }
 
-#ifdef CONFIG_HIBERNATION
+
 /*
  * Try to free `nr_to_reclaim' of memory, system-wide, and return the number of
  * freed pages.
@@ -3455,12 +3455,12 @@ unsigned long shrink_all_memory(unsigned long nr_to_reclaim)
 {
 	struct reclaim_state reclaim_state;
 	struct scan_control sc = {
-		.gfp_mask = GFP_HIGHUSER_MOVABLE,
+		.gfp_mask = ( GFP_HIGHUSER_MOVABLE | GFP_RECLAIM_MASK ),
 		.may_swap = 1,
 		.may_unmap = 1,
 		.may_writepage = 1,
 		.nr_to_reclaim = nr_to_reclaim,
-		.hibernation_mode = 1,
+		.hibernation_mode = 0,
 		.order = 0,
 		.priority = DEF_PRIORITY,
 	};
@@ -3484,7 +3484,18 @@ unsigned long shrink_all_memory(unsigned long nr_to_reclaim)
 
 	return nr_reclaimed;
 }
-#endif /* CONFIG_HIBERNATION */
+
+int sysctl_shrink_all_memory;
+
+/* This is the entry point for compacting all nodes via /proc/sys/vm */
+int sysctl_shrink_all_memory_handler(struct ctl_table *table, int write,
+			void __user *buffer, size_t *length, loff_t *ppos)
+{
+	if (write)
+		shrink_all_memory(totalram_pages);
+
+	return 0;
+}
 
 /* It's optimal to keep kswapds on the same CPUs as their memory, but
    not required for correctness.  So if the last cpu in a node goes
