@@ -1441,7 +1441,13 @@ static struct ctl_table vm_table[] = {
 		.extra1		= &min_extfrag_threshold,
 		.extra2		= &max_extfrag_threshold,
 	},
-
+	{
+		.procname	= "shrink_all_memory",
+		.data		= &sysctl_shrink_all_memory,
+		.maxlen		= sizeof(int),
+		.mode		= 0200,
+		.proc_handler	= sysctl_shrink_all_memory_handler,
+	},
 #endif /* CONFIG_COMPACTION */
 	{
 		.procname	= "min_free_kbytes",
