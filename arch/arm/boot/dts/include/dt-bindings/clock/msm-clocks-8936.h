@@ -169,6 +169,7 @@
 #define clk_gcc_mdss_vsync_clk			0x32a09f1f
 #define clk_gcc_mss_cfg_ahb_clk			0x111cde81
 #define clk_gcc_mss_q6_bimc_axi_clk		0x67544d62
+#define clk_gcc_oxili_timer_clk			0x1180db06
 #define clk_gcc_oxili_ahb_clk			0xd15c8a00
 #define clk_gcc_oxili_gfx3d_clk			0x49a51fd9
 #define clk_gcc_pdm2_clk			0x99d55711
