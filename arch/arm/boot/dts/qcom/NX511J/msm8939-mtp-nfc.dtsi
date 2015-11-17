@@ -12,6 +12,7 @@
 #include "msm8939-nfc-pinctrl.dtsi"
 &soc {
 	i2c@78ba000 { /* BLSP1 QUP6 */
+/*
 		nfc-nci@e {
 			compatible = "qcom,nfc-nci";
 			reg = <0x0e>;
@@ -25,6 +26,23 @@
 			pinctrl-0 = <&nfc_int_active &nfc_disable_active>;
 			pinctrl-1 = <&nfc_int_suspend &nfc_disable_suspend>;
 			qcom,clk-gpio = <&pm8916_gpios 2 0>;
+			clocks = <&clock_rpm clk_bb_clk2_pin>;
+			clock-names = "ref_clk";
+		};
+*/
+		broadcom_bcm2079x_nfc@0x76 {
+			compatible = "broadcom,bcm2079x_nfc";
+			reg = <0x76>;
+			broadcom,irq-gpio = <&msm_gpio 50 0x00>;
+			broadcom,en-gpio = <&msm_gpio 20 0x00>;
+			broadcom,wake-gpio = <&msm_gpio 21 0x00>;
+			interrupt-parent = <&msm_gpio>;
+			interrupts = <50 0>;
+			interrupt-names = "BRCM_NFC_INT";
+			pinctrl-names = "bcm2079x_pin_active","bcm2079x_pin_suspend";
+			pinctrl-0 = <&bcm2079x_int_active &bcm2079x_en_active &bcm2079x_ctl_active>;
+			pinctrl-1 = <&bcm2079x_int_suspend &bcm2079x_en_suspend &bcm2079x_ctl_suspend>;	
+			broadcom,clk-gpio = <&pm8916_gpios 2 0>;
 			clocks = <&clock_rpm clk_bb_clk2_pin>;
 			clock-names = "ref_clk";
 		};

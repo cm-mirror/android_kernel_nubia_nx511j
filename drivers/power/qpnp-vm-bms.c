@@ -38,9 +38,6 @@
 #include <linux/qpnp-revid.h>
 #include <uapi/linux/vm_bms.h>
 
-#ifdef CONFIG_ZTEMT_BATTERY_FG_LC709203F
-	#include "linux/power/lc709203f_battery.h"
-#endif
 #define _BMS_MASK(BITS, POS) \
 	((unsigned char)(((1 << (BITS)) - 1) << (POS)))
 #define BMS_MASK(LEFT_BIT_POS, RIGHT_BIT_POS) \
@@ -1657,12 +1654,8 @@ static int report_vm_bms_soc(struct qpnp_bms_chip *chip)
 	 * initial OCV.
 	 */
 
-#ifdef CONFIG_ZTEMT_BATTERY_FG_LC709203F
-	backup_ocv_soc(chip, 1000*lc709203f_get_voltage(), lc709203f_get_soc());
-#else
 	backup_ocv_soc(chip, chip->last_ocv_uv, chip->last_soc);
 
-#endif
 	pr_debug("Reported SOC=%d\n", chip->last_soc);
 
 	return chip->last_soc;
@@ -2087,11 +2080,7 @@ static int qpnp_vm_bms_power_get_property(struct power_supply *psy,
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_CAPACITY:
-#ifdef CONFIG_ZTEMT_BATTERY_FG_LC709203F
-		val->intval =  lc709203f_get_soc( );	
-#else
 		val->intval = get_prop_bms_capacity(chip);
-#endif
 		break;
 	case POWER_SUPPLY_PROP_STATUS:
 		val->intval = chip->battery_status;
@@ -2276,9 +2265,6 @@ static void qpnp_vm_bms_ext_power_changed(struct power_supply *psy)
 								bms_psy);
 
 	pr_debug("Triggered!\n");
-#ifdef CONFIG_ZTEMT_BATTERY_FG_LC709203F
-	lc709203f_set_recharge_flag(false);
-#endif
 	battery_status_check(chip);
 	battery_insertion_check(chip);
 }
@@ -2604,24 +2590,6 @@ static int read_shutdown_ocv_soc(struct qpnp_bms_chip *chip)
 	return 0;
 }
 
-#ifdef CONFIG_ZTEMT_BATTERY_FG_LC709203F
-int lc709203f_read_shutdown_ocv_soc(struct pwr_on_param *pwr_on_param)
-{
-	int rc;
-	
-	if(the_chip){
-		pwr_on_param->warm_reset = the_chip->warm_reset;
-		pwr_on_param->current_ocv = the_chip->last_ocv_uv/1000;;
-		rc = read_shutdown_ocv_soc(the_chip);
-		if(!rc){
-			pwr_on_param->backup_voltage= the_chip->shutdown_ocv/1000;
-			pwr_on_param->backup_soc= the_chip->shutdown_soc;
-			return 0;
-		}
-	}
-	return -EINVAL;
-}
-#endif
 static int interpolate_current_comp(int die_temp)
 {
 	int i;
@@ -2751,9 +2719,6 @@ static int calculate_initial_soc(struct qpnp_bms_chip *chip)
 	}
 	/* store the start-up OCV for voltage-based-soc */
 	chip->voltage_soc_uv = chip->last_ocv_uv;
-#ifdef CONFIG_ZTEMT_BATTERY_FG_LC709203F
-	 lc709203_calculate_initial_soc();
-#endif
 
 	pr_info("warm_reset=%d est_ocv=%d  shutdown_soc_invalid=%d shutdown_ocv=%d shutdown_soc=%d last_soc=%d calculated_soc=%d last_ocv_uv=%d\n",
 		chip->warm_reset, est_ocv, chip->shutdown_soc_invalid,
@@ -3485,7 +3450,6 @@ static int parse_bms_dt_properties(struct qpnp_bms_chip *chip)
 			chip->spmi->dev.of_node, "qcom,report-charger-eoc");
 	chip->dt.cfg_disable_bms = of_property_read_bool(
 			chip->spmi->dev.of_node, "qcom,disable-bms");
-
 	chip->dt.cfg_force_bms_active_on_charger = of_property_read_bool(
 			chip->spmi->dev.of_node,
 			"qcom,force-bms-active-on-charger");

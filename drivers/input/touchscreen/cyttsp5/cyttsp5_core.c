@@ -4969,6 +4969,38 @@ const struct dev_pm_ops cyttsp5_pm_ops = {
 };
 EXPORT_SYMBOL_GPL(cyttsp5_pm_ops);
 
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+static ssize_t cyttsp5_c_zone_show(struct device *dev,
+                   struct device_attribute *attr, char *buf)
+{
+	struct cyttsp5_core_data *cd = dev_get_drvdata(dev);
+	int value = 0;
+	pr_info("cyttsp5_c_zone_show \n");
+	value = cd->md.ignore_zone_on;
+	if (value < 0) {
+		pr_err("%s: Invalid value\n", __func__);
+		return snprintf(buf, PAGE_SIZE, "error\n");
+	}
+	return snprintf(buf, PAGE_SIZE, "0x%02X\n",value);
+}
+
+static ssize_t cyttsp5_c_zone_store(struct device *dev,
+    struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct cyttsp5_core_data *cd = dev_get_drvdata(dev);
+	int rc = 0;
+	int value = 1;
+	pr_info("cyttsp5_c_zone_store \n");
+	rc = sscanf(buf, "%x", &value);
+	if (rc != 1) {
+		pr_err("%s: Invalid value\n", __func__);
+		return count;
+	}
+	cd->md.ignore_zone_on= value;
+	return count;
+}
+#endif
+
 /*
  * Show Firmware version via sysfs
  */
@@ -5425,6 +5457,9 @@ exit:
 }
 
 static struct device_attribute attributes[] = {
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+	__ATTR(c_zone, 0664, cyttsp5_c_zone_show, cyttsp5_c_zone_store),
+#endif
 	__ATTR(ic_ver, S_IRUGO, cyttsp5_ic_ver_show, NULL),
 	__ATTR(drv_ver, S_IRUGO, cyttsp5_drv_ver_show, NULL),
 	__ATTR(hw_reset, S_IWUSR, NULL, cyttsp5_hw_reset_store),

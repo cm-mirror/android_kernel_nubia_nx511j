@@ -764,6 +764,12 @@ struct cyttsp5_mt_data {
 	int or_max;
 	int t_min;
 	int t_max;
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+	struct input_dev *input_rim;//ZTEMT add for panel without rim
+	bool ignore_zone_on;
+	char slot_zoneid[10];//C 1,A 0,AtoC 2,CtoA 3
+	struct input_dev *current_input;
+#endif
 };
 
 struct cyttsp5_btn_data {
@@ -992,6 +998,30 @@ enum scan_data_type_list {
 	CY_BAL_RAW,
 	CY_BAL_BASE,
 	CY_BAL_DIFF,
+};
+#endif
+
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+#define ZTEMT_C_AREA_WIDTH	33
+#define ZTEMT_B_AREA_WIDTH	33
+#define cyttsp5_ts_name_rim "nubia_touchscreen_rim"
+enum {
+	ZONE_DEFAULT = 0,
+	ZONE_A,
+	ZONE_B,
+	ZONE_C,
+};
+
+enum {
+	IGNORE_TURN_A = 0,
+	IGNORE_TURN_B,
+	IGNORE_TURN_C,
+	IGNORE_TURN_A_TO_C,
+	IGNORE_TURN_A_TO_B,
+	IGNORE_TURN_B_TO_A,
+	IGNORE_TURN_B_TO_C,
+	IGNORE_TURN_C_TO_A,
+	IGNORE_TURN_C_TO_B,
 };
 #endif
 

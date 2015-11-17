@@ -79,10 +79,16 @@ u8 is_reseting = 0;
 /*wakeup gesture:0 stands for close, 1 stands for open added by ztemt 2015.01.03*/
 u8 gt1x_wakeup_gesture = 0;
 
+#ifdef CONFIG_NUBIA_GT1X_IGNORE_ZONE_ON
+extern struct input_dev *input_dev;
+extern struct input_dev *input_rim_dev;
+#endif
+
 static ssize_t gt1x_debug_read_proc(struct file *, char __user *, size_t, loff_t *);
 static ssize_t gt1x_debug_write_proc(struct file *, const char __user *, size_t, loff_t *);
 
 static struct proc_dir_entry *gt1x_debug_proc_entry = NULL;
+
 
 static const struct file_operations gt1x_debug_fops = {
 	.owner = THIS_MODULE,
@@ -1109,7 +1115,6 @@ s32 gt1x_touch_event_handler(u8 * data, struct input_dev * dev, struct input_dev
 	finger = data[0];
 	if ((finger & 0x40) == 0x40) {
 		GTP_INFO("Have palm event.");
-
 		if (pre_index) {
 			#if GTP_ICS_SLOT_REPORT
 			for (i = 0; i < GTP_MAX_TOUCH; i++) {
@@ -1122,9 +1127,17 @@ s32 gt1x_touch_event_handler(u8 * data, struct input_dev * dev, struct input_dev
 			#endif
 			pre_index = 0;
 		}
-
-        input_report_abs(dev, ABS_MT_PRESSURE, 1000);
-        input_sync(dev);
+		#if GTP_ICS_SLOT_REPORT
+		input_sync(dev);
+		input_mt_report_slot_state(dev, MT_TOOL_FINGER, true);
+		input_report_abs(dev, ABS_MT_PRESSURE, 1000);
+		input_sync(dev);
+		input_mt_report_slot_state(dev, MT_TOOL_FINGER, false);
+		input_sync(dev);
+		#else
+		input_report_abs(dev, ABS_MT_PRESSURE, 1000);
+		input_sync(dev);
+		#endif
 		return 0;
 	}
 
@@ -1273,7 +1286,12 @@ s32 gt1x_touch_event_handler(u8 * data, struct input_dev * dev, struct input_dev
 
 	if (CHK_BIT(cur_event, BIT_TOUCH_KEY | BIT_TOUCH)
 	    || CHK_BIT(pre_event, BIT_TOUCH_KEY | BIT_TOUCH)) {
+#ifdef CONFIG_NUBIA_GT1X_IGNORE_ZONE_ON
+		input_sync(input_dev);
+		input_sync(input_rim_dev);
+#else
 		input_sync(dev);
+#endif
 	}
 
 	if (!pre_event && !cur_event) {

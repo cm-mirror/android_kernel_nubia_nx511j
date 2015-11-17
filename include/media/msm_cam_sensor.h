@@ -409,8 +409,7 @@ enum msm_sensor_cfg_type_t {
 	CFG_SET_AUTOFOCUS,
 	CFG_CANCEL_AUTOFOCUS,
 	CFG_SET_STREAM_TYPE,
-	CFG_SET_OTP_INIT_PARAM, // zte-fuyipeng modify for set otp param
-        // ZTEMT: peijun add for setBacklight -----start
+	 // ZTEMT: peijun add for setBacklight -----start
 	CFG_SET_ZTE_BACKLIGHT,
 	// ZTEMT: peijun add for setBacklight -----end
 };
@@ -426,7 +425,10 @@ enum msm_actuator_cfg_type_t {
 	CFG_ACTUATOR_INIT,
 	// ZTEMT: fuyipeng add for manual AF -----start
 	CFG_SET_ACTUATOR_NAME,
-      // ZTEMT: fuyipeng add for manual AF -----end
+    // ZTEMT: fuyipeng add for manual AF -----end
+    /*ZTEMT:jixd add af infinity calibration -----start*/
+    CFG_SET_INFINITY_POS,
+   /*ZTEMT:jixd add af infinity calibration -----end*/  
 };
 
 enum msm_ois_cfg_type_t {
@@ -551,15 +553,16 @@ struct msm_actuator_cfg_data {
 	int cfgtype;
 	uint8_t is_af_supported;
 	union {
-		struct msm_actuator_move_params_t move;
-		struct msm_actuator_set_info_t set_info;
-		struct msm_actuator_get_info_t get_info;
-		struct msm_actuator_set_position_t setpos;
-		enum af_camera_name cam_name;
-		// ZTEMT: fuyipeng add for manual AF -----start
-             char *act_name;
-             // ZTEMT: fuyipeng add for manual AF -----end	
-	} cfg;
+        struct msm_actuator_move_params_t move;
+        struct msm_actuator_set_info_t set_info;
+        struct msm_actuator_get_info_t get_info;
+        struct msm_actuator_set_position_t setpos;
+        enum af_camera_name cam_name;
+        // ZTEMT: fuyipeng add for manual AF -----start
+        char *act_name;
+        // ZTEMT: fuyipeng add for manual AF -----end
+        int infinity_pos;//ZTEMT:jixd add af infinity calibration 
+    } cfg;
 };
 
 enum msm_camera_led_config_t {
@@ -712,7 +715,8 @@ struct msm_actuator_cfg_data32 {
 		enum af_camera_name cam_name;
 		// ZTEMT: fuyipeng add for manual AF -----start
              char *act_name;
-             // ZTEMT: fuyipeng add for manual AF -----end	
+             // ZTEMT: fuyipeng add for manual AF -----end
+        int infinity_pos;//ZTEMT:jixd add af infinity calibration 
 	} cfg;
 };
 

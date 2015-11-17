@@ -22,6 +22,7 @@
  */
 
 #include "cyttsp5_regs.h"
+#include <linux/input/mt.h>
 
 #define MT_PARAM_SIGNAL(md, sig_ost) PARAM_SIGNAL(md->pdata->frmwrk, sig_ost)
 #define MT_PARAM_MIN(md, sig_ost) PARAM_MIN(md->pdata->frmwrk, sig_ost)
@@ -41,7 +42,11 @@ static void cyttsp5_mt_lift_all(struct cyttsp5_mt_data *md)
 	if (md->num_prv_rec != 0) {
 		if (md->mt_function.report_slot_liftoff)
 			md->mt_function.report_slot_liftoff(md, max);
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+		input_sync(md->current_input);
+#else
 		input_sync(md->input);
+#endif
 		md->num_prv_rec = 0;
 	}
 }
@@ -209,8 +214,91 @@ static void cyttsp5_report_event(struct cyttsp5_mt_data *md, int event,
 	int sig = MT_PARAM_SIGNAL(md, event);
 
 	if (sig != CY_IGNORE_VALUE)
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+		input_report_abs(md->current_input, sig, value);
+#else
 		input_report_abs(md->input, sig, value);
+#endif
 }
+
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+static int zte_ignore_zone(struct cyttsp5_mt_data *md, int point_id, int x, int y)
+{
+	char pre_zone;
+	char cur_zone;
+	int ret;
+	pre_zone = md->slot_zoneid[point_id];
+
+	if(x < ZTEMT_C_AREA_WIDTH || x > (1080 - ZTEMT_C_AREA_WIDTH))
+		cur_zone = ZONE_C;
+	else if(x < ZTEMT_B_AREA_WIDTH || x > (1080 - ZTEMT_B_AREA_WIDTH))
+		cur_zone = ZONE_B;
+	else
+		cur_zone = ZONE_A;
+
+	switch (pre_zone){
+	case ZONE_C:
+		switch (cur_zone){
+		case ZONE_C:
+			ret = IGNORE_TURN_C;
+			break;
+		case ZONE_B:
+			pr_err("%s:C to B !\n", __func__);
+			ret = IGNORE_TURN_C_TO_B;
+			break;
+		case ZONE_A:
+			pr_err("%s:C to A !\n", __func__);
+			ret = IGNORE_TURN_C_TO_A;
+			break;
+		default:
+			break;
+		}
+		break;
+	case ZONE_B:
+		switch (cur_zone){
+		case ZONE_C:
+			ret = IGNORE_TURN_B_TO_C;
+			break;
+		case ZONE_B:
+			ret = IGNORE_TURN_B;
+			break;
+		case ZONE_A:
+			ret = IGNORE_TURN_B_TO_A;
+			break;
+		default:
+			break;
+		}
+		break;
+	case ZONE_A:
+			ret = IGNORE_TURN_A;
+			break;
+	case ZONE_DEFAULT:
+		switch (cur_zone){
+		case ZONE_C:
+			pr_err("%s:start from zone C !\n", __func__);
+			ret = IGNORE_TURN_C;
+			break;
+		case ZONE_B:
+			pr_err("%s:start from zone B !\n", __func__);
+			ret = IGNORE_TURN_B;
+			break;
+		case ZONE_A:
+			pr_err("%s:start from zone A !\n", __func__);
+			ret = IGNORE_TURN_A;
+			break;
+		default:
+			break;
+		}
+		break;
+	default:
+		ret = -EPERM;
+		break;
+	}
+	if(pre_zone != ZONE_A)
+		md->slot_zoneid[point_id] = cur_zone;
+	return ret;
+}
+#endif
 
 static void cyttsp5_get_mt_touches(struct cyttsp5_mt_data *md,
 		struct cyttsp5_touch *tch, int num_cur_tch)
@@ -223,6 +311,9 @@ static void cyttsp5_get_mt_touches(struct cyttsp5_mt_data *md,
 	DECLARE_BITMAP(ids, max_tch);
 	int mt_sync_count = 0;
 	u8 *tch_addr;
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+	int ret;
+#endif
 
 	bitmap_zero(ids, max_tch);
 	memset(tch->abs, 0, sizeof(tch->abs));
@@ -246,15 +337,52 @@ static void cyttsp5_get_mt_touches(struct cyttsp5_mt_data *md,
 			dev_err(dev, "%s: tch=%d -> bad trk_id=%d max_id=%d\n",
 				__func__, i, t, md->t_max);
 			if (md->mt_function.input_sync)
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+				md->mt_function.input_sync(md->current_input);
+#else
 				md->mt_function.input_sync(md->input);
+#endif
 			mt_sync_count++;
 			continue;
 		}
+
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+		if (md->ignore_zone_on)
+		{
+		/*ZTEMT start add for panel without rim*/
+			ret = zte_ignore_zone(md, tch->abs[CY_TCH_T], tch->abs[CY_TCH_X], tch->abs[CY_TCH_Y]);
+
+			if(ret == IGNORE_TURN_C){//C zone
+				md->current_input = md->input_rim;
+			}else if(ret == IGNORE_TURN_A){//A zone
+				md->current_input = md->input;
+			}else if(ret == IGNORE_TURN_C_TO_A){//C-A zone
+				md->current_input = md->input_rim;
+				input_mt_slot(md->current_input, tch->abs[CY_TCH_T]);
+				input_mt_report_slot_state(md->current_input, MT_TOOL_FINGER, 0);
+				md->slot_zoneid[tch->abs[CY_TCH_T]] = ZONE_DEFAULT;
+				md->current_input = md->input;
+			}else if(ret == IGNORE_TURN_A_TO_C){//A-C zone
+				md->current_input = md->input;
+				input_mt_slot(md->current_input, tch->abs[CY_TCH_T]);
+				input_mt_report_slot_state(md->current_input, MT_TOOL_FINGER, 0);
+				md->slot_zoneid[tch->abs[CY_TCH_T]] = ZONE_DEFAULT;
+				md->current_input = md->input_rim;
+			}else{
+				pr_err("%s: unknow ignore zone state !\n", __func__);
+			}
+		}else{
+			md->current_input = md->input;
+		}
+#endif
 
 		/* Lift-off */
 		if (tch->abs[CY_TCH_E] == CY_EV_LIFTOFF) {
 			/*dev_dbg(dev, "%s: t=%d e=%d lift-off\n",
 				__func__, t, tch->abs[CY_TCH_E]);*/
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+			md->slot_zoneid[tch->abs[CY_TCH_T]] = ZONE_DEFAULT;
+#endif
 			goto cyttsp5_get_mt_touches_pr_tch;
 		}
 
@@ -267,8 +395,13 @@ static void cyttsp5_get_mt_touches(struct cyttsp5_mt_data *md,
 		sig = MT_PARAM_SIGNAL(md, CY_ABS_ID_OST);
 		if (sig != CY_IGNORE_VALUE) {
 			if (md->mt_function.input_report)
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+				md->mt_function.input_report(md->current_input, sig,
+						t, tch->abs[CY_TCH_O]);
+#else
 				md->mt_function.input_report(md->input, sig,
 						t, tch->abs[CY_TCH_O]);
+#endif
 			__set_bit(t, ids);
 		}
 
@@ -296,7 +429,11 @@ static void cyttsp5_get_mt_touches(struct cyttsp5_mt_data *md,
 					tch->abs[CY_TCH_MAJ + j]);
 		}
 		if (md->mt_function.input_sync)
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+			md->mt_function.input_sync(md->current_input);
+#else
 			md->mt_function.input_sync(md->input);
+#endif
 		mt_sync_count++;
 
 cyttsp5_get_mt_touches_pr_tch:
@@ -316,9 +453,13 @@ cyttsp5_get_mt_touches_pr_tch:
 	}
 
 	if (md->mt_function.final_sync)
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+		md->mt_function.final_sync(md->current_input, max_tch,
+				mt_sync_count, ids);
+#else
 		md->mt_function.final_sync(md->input, max_tch,
 				mt_sync_count, ids);
-
+#endif
 	md->num_prv_rec = num_cur_tch;
 }
 
@@ -388,7 +529,6 @@ static int cyttsp5_xy_worker(struct cyttsp5_mt_data *md)
 		cyttsp5_get_mt_touches(md, &tch, num_cur_tch);
 	else
 		cyttsp5_mt_lift_all(md);
-
 	rc = 0;
 
 cyttsp5_xy_worker_exit:
@@ -613,6 +753,30 @@ static int cyttsp5_setup_input_device(struct device *dev)
 	int rc;
 
 	dev_vdbg(dev, "%s: Initialize event signals\n", __func__);
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+	__set_bit(EV_ABS, md->input_rim->evbit);
+	__set_bit(EV_REL, md->input_rim->evbit);
+	__set_bit(EV_KEY, md->input_rim->evbit);
+#ifdef INPUT_PROP_DIRECT
+	__set_bit(INPUT_PROP_DIRECT, md->input_rim->propbit);
+#endif
+
+#ifdef ZTE_GES_WAKEUP
+	__set_bit(KEY_F5, md->input_rim->keybit);
+	__set_bit(KEY_F6, md->input_rim->keybit);
+	__set_bit(KEY_F7, md->input_rim->keybit);
+	__set_bit(KEY_F8, md->input_rim->keybit);
+	__set_bit(KEY_F9, md->input_rim->keybit);
+	__set_bit(KEY_F10, md->input_rim->keybit);
+	__set_bit(KEY_F11, md->input_rim->keybit);
+	__set_bit(KEY_F12, md->input_rim->keybit);
+	__set_bit(KEY_F1, md->input_rim->keybit);
+	__set_bit(KEY_F2, md->input_rim->keybit);
+	__set_bit(KEY_F3, md->input_rim->keybit);
+	__set_bit(KEY_F4, md->input_rim->keybit);
+#endif
+#endif
+
 	__set_bit(EV_ABS, md->input->evbit);
 	__set_bit(EV_REL, md->input->evbit);
 	__set_bit(EV_KEY, md->input->evbit);
@@ -627,7 +791,7 @@ static int cyttsp5_setup_input_device(struct device *dev)
 	__set_bit(KEY_F8, md->input->keybit);
 	__set_bit(KEY_F9, md->input->keybit);
 	__set_bit(KEY_F10, md->input->keybit);
-    __set_bit(KEY_F11, md->input->keybit);
+	__set_bit(KEY_F11, md->input->keybit);
 	__set_bit(KEY_F12, md->input->keybit);
 	__set_bit(KEY_F1, md->input->keybit);
 	__set_bit(KEY_F2, md->input->keybit);
@@ -659,7 +823,9 @@ static int cyttsp5_setup_input_device(struct device *dev)
 		signal = MT_PARAM_SIGNAL(md, i);
 		if (signal != CY_IGNORE_VALUE) {
 			__set_bit(signal, md->input->absbit);
-
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+			__set_bit(signal, md->input_rim->absbit);
+#endif
 			min = MT_PARAM_MIN(md, i);
 			max = MT_PARAM_MAX(md, i);
 			if (i == CY_ABS_ID_OST) {
@@ -675,6 +841,10 @@ static int cyttsp5_setup_input_device(struct device *dev)
 
 			input_set_abs_params(md->input, signal, min, max,
 				MT_PARAM_FUZZ(md, i), MT_PARAM_FLAT(md, i));
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+			input_set_abs_params(md->input_rim, signal, min, max,
+				MT_PARAM_FUZZ(md, i), MT_PARAM_FLAT(md, i));
+#endif
 			dev_dbg(dev, "%s: register signal=%02X min=%d max=%d\n",
 				__func__, signal, min, max);
 		}
@@ -688,6 +858,13 @@ static int cyttsp5_setup_input_device(struct device *dev)
 
 	rc = md->mt_function.input_register_device(md->input,
 			md->si->tch_abs[CY_TCH_T].max);
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+	rc = md->mt_function.input_register_device(md->input_rim,
+			md->si->tch_abs[CY_TCH_T].max);
+	if (rc < 0)
+		dev_err(dev, "%s: Error, failed register input rim device r=%d\n",
+			__func__, rc);
+#endif
 	if (rc < 0)
 		dev_err(dev, "%s: Error, failed register input device r=%d\n",
 			__func__, rc);
@@ -722,7 +899,9 @@ int cyttsp5_mt_probe(struct device *dev)
 	struct cyttsp5_platform_data *pdata = dev_get_platdata(dev);
 	struct cyttsp5_mt_platform_data *mt_pdata;
 	int rc = 0;
-
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+	int i;
+#endif
 	if (!pdata || !pdata->mt_pdata) {
 		dev_err(dev, "%s: Missing platform data\n", __func__);
 		rc = -ENODEV;
@@ -758,7 +937,31 @@ int cyttsp5_mt_probe(struct device *dev)
 	md->input->open = cyttsp5_mt_open;
 	md->input->close = cyttsp5_mt_close;
 	input_set_drvdata(md->input, md);
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+	md->input_rim = input_allocate_device();
+	if (!md->input_rim) {
+		dev_err(dev, "%s: Error, failed to allocate input rim device\n",
+			__func__);
+		rc = -ENOSYS;
+		goto error_alloc_failed;
+	}
+	md->input_rim->name = cyttsp5_ts_name_rim;
+	scnprintf(md->phys, sizeof(md->phys), "%s/input%d", dev_name(dev),
+			cd->phys_num++);
+	md->input_rim->phys = md->phys;
+	md->input_rim->dev.parent = md->dev;
+	md->input_rim->open = cyttsp5_mt_open;
+	md->input_rim->close = cyttsp5_mt_close;
+	input_set_drvdata(md->input_rim, md);
 
+	for(i=0;i<10;i++){
+		md->slot_zoneid[i] = ZONE_DEFAULT;
+		//slot_ignore[i].slot_X0 = 0;
+		//slot_ignore[i].slot_Y0 = 0;
+	}
+	md->ignore_zone_on= 1;
+	md->current_input = md->input;
+#endif
 	/* get sysinfo */
 	md->si = _cyttsp5_request_sysinfo(dev);
 
@@ -777,6 +980,9 @@ int cyttsp5_mt_probe(struct device *dev)
 
 error_init_input:
 	input_free_device(md->input);
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+	input_free_device(md->input_rim);
+#endif
 error_alloc_failed:
 error_no_pdata:
 	dev_err(dev, "%s failed.\n", __func__);
@@ -790,8 +996,14 @@ int cyttsp5_mt_release(struct device *dev)
 
 	if (md->input_device_registered) {
 		input_unregister_device(md->input);
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+		input_unregister_device(md->input_rim);
+#endif
 	} else {
 		input_free_device(md->input);
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+		input_free_device(md->input_rim);
+#endif
 		_cyttsp5_unsubscribe_attention(dev, CY_ATTEN_STARTUP,
 			CY_MODULE_MT, cyttsp5_setup_input_attention, 0);
 	}

@@ -665,7 +665,7 @@ static int cpufreq_interactive_speedchange_task(void *data)
 			unsigned int j;
 			unsigned int max_freq = 0;
 			struct cpufreq_interactive_cpuinfo *pjcpu;
-			u64 hvt = 0;
+			u64 hvt;
 
 			pcpu = &per_cpu(cpuinfo, cpu);
 			if (!down_read_trylock(&pcpu->enable_sem))
@@ -1266,19 +1266,15 @@ static ssize_t store_use_sched_load(
 
 	if (tunables->use_sched_load == (bool) val)
 		return count;
-
-	tunables->use_sched_load = val;
-
 	if (val)
 		ret = cpufreq_interactive_enable_sched_input(tunables);
 	else
 		ret = cpufreq_interactive_disable_sched_input(tunables);
 
-	if (ret) {
-		tunables->use_sched_load = !val;
+	if (ret)
 		return ret;
-	}
 
+	tunables->use_sched_load = val;
 	return count;
 }
 

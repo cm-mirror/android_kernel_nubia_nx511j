@@ -35,15 +35,56 @@
 
 static s32 gt1x_halt = 0;
 static struct work_struct gt1x_work;
+#ifdef CONFIG_NUBIA_GT1X_IGNORE_ZONE_ON
+struct input_dev *input_dev;
+#else
 static struct input_dev *input_dev;
+#endif
 static struct workqueue_struct *gt1x_wq;
 static const char *gt1x_ts_name = "goodix-ts";
 static const char *input_dev_phys = "input/ts";
+
+#ifdef CONFIG_NUBIA_GT1X_IGNORE_ZONE_ON
+struct input_dev *input_rim_dev;//ZTEMT add for panel without rim
+static const char *gt1x_ts_name_rim = "nubia_touchscreen_rim";
+static struct input_dev *current_input;
+#endif
 
 extern u8 gt1x_wakeup_gesture;
 
 /*0 stands for hand mode, 1 stands for glove mode added by ztemt 2015.01.01*/
 u8 gt1x_touch_mode = 0;
+
+#ifdef CONFIG_NUBIA_GT1X_IGNORE_ZONE_ON
+#define ZTEMT_C_AREA_WIDTH	33
+#define ZTEMT_B_AREA_WIDTH	33
+static char c_zone_flag;
+static int zte_ignore_zone(int point_id, int x, int y);
+
+struct slot{
+	char slot_zoneid;//C 1,A 0,AtoC 2,CtoA 3
+};
+struct slot slot_ignore[10];
+
+enum {
+	ZONE_DEFAULT = 0,
+	ZONE_A,
+	ZONE_B,
+	ZONE_C,
+};
+
+enum {
+	IGNORE_TURN_A = 0,
+	IGNORE_TURN_B,
+	IGNORE_TURN_C,
+	IGNORE_TURN_A_TO_C,
+	IGNORE_TURN_A_TO_B,
+	IGNORE_TURN_B_TO_A,
+	IGNORE_TURN_B_TO_C,
+	IGNORE_TURN_C_TO_A,
+	IGNORE_TURN_C_TO_B,
+};
+#endif
 
 /*** ZTEMT start 20141218***/
 #ifdef CONFIG_FB
@@ -208,6 +249,90 @@ static irqreturn_t gt1x_ts_irq_handler(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+#ifdef CONFIG_NUBIA_GT1X_IGNORE_ZONE_ON
+static int zte_ignore_zone(int point_id, int x, int y)
+{
+	char pre_zone;
+	char cur_zone;
+	int ret;
+	pre_zone = slot_ignore[point_id].slot_zoneid;
+
+	if(x < ZTEMT_C_AREA_WIDTH || x > (1080 - ZTEMT_C_AREA_WIDTH))
+		cur_zone = ZONE_C;
+	else if(x < ZTEMT_B_AREA_WIDTH || x > (1080 - ZTEMT_B_AREA_WIDTH))
+		cur_zone = ZONE_B;
+	else
+		cur_zone = ZONE_A;
+
+	switch (pre_zone){
+	case ZONE_C:
+		switch (cur_zone){
+		case ZONE_C:
+			ret = IGNORE_TURN_C;
+			break;
+		case ZONE_B:
+			pr_err("%s:C to B !\n", __func__);
+			slot_ignore[point_id].slot_zoneid = ZONE_B;
+			ret = IGNORE_TURN_C_TO_A;
+			break;
+		case ZONE_A:
+			pr_err("%s:C to A !\n", __func__);
+			slot_ignore[point_id].slot_zoneid = ZONE_A;
+			ret = IGNORE_TURN_C_TO_A;
+			break;
+		default:
+			break;
+		}
+		break;
+	case ZONE_B:
+		switch (cur_zone){
+		case ZONE_C:
+			pr_err("%s:B to C !\n", __func__);
+			slot_ignore[point_id].slot_zoneid = ZONE_C;
+			ret = IGNORE_TURN_A_TO_C;
+			break;
+		case ZONE_B:
+			ret = IGNORE_TURN_A;
+			break;
+		case ZONE_A:
+			pr_err("%s:B to A !\n", __func__);
+			slot_ignore[point_id].slot_zoneid = ZONE_A;
+			ret = IGNORE_TURN_A;
+			break;
+		default:
+			break;
+		}
+		break;
+	case ZONE_A:
+			ret = IGNORE_TURN_A;
+			break;
+	case ZONE_DEFAULT:
+		switch (cur_zone){
+		case ZONE_C:
+			pr_err("%s:start from zone C !\n", __func__);
+			ret = IGNORE_TURN_C;
+			break;
+		case ZONE_B:
+			pr_err("%s:start from zone B !\n", __func__);
+			ret = IGNORE_TURN_A;
+			break;
+		case ZONE_A:
+			pr_err("%s:start from zone A !\n", __func__);
+			ret = IGNORE_TURN_A;
+			break;
+		default:
+			break;
+		}
+		slot_ignore[point_id].slot_zoneid = cur_zone;
+		break;
+	default:
+		ret = -EPERM;
+		break;
+	}
+	return ret;
+}
+#endif
+
 /**
  * gt1x_touch_down - Report touch point event .
  * @id: trackId
@@ -218,17 +343,58 @@ static irqreturn_t gt1x_ts_irq_handler(int irq, void *dev_id)
  */
 void gt1x_touch_down(s32 x, s32 y, s32 size, s32 id)
 {
+#ifdef CONFIG_NUBIA_GT1X_IGNORE_ZONE_ON
+	int ret;
+#endif
+
 #if GTP_CHANGE_X2Y
 	GTP_SWAP(x, y);
 #endif
 
 #if GTP_ICS_SLOT_REPORT
+#ifdef CONFIG_NUBIA_GT1X_IGNORE_ZONE_ON
+	if (c_zone_flag == 1)
+	{
+	/*ZTEMT start add for panel without rim*/
+		ret = zte_ignore_zone(id,x,y);
+
+		if(ret == IGNORE_TURN_C){//C zone
+			current_input = input_rim_dev;
+		}else if(ret == IGNORE_TURN_A){//A zone
+			current_input = input_dev;
+		}else if(ret == IGNORE_TURN_C_TO_A){//C-A zone
+			current_input = input_rim_dev;
+			input_mt_slot(current_input, id);
+			input_mt_report_slot_state(current_input, MT_TOOL_FINGER, 0);
+			slot_ignore[id].slot_zoneid = ZONE_DEFAULT;
+			current_input = input_dev;
+		}else if(ret == IGNORE_TURN_A_TO_C){//A-C zone
+			current_input = input_dev;
+			input_mt_slot(current_input, id);
+			input_mt_report_slot_state(current_input, MT_TOOL_FINGER, 0);
+			slot_ignore[id].slot_zoneid = ZONE_DEFAULT;
+			current_input = input_rim_dev;
+		}else{
+			pr_err("%s: unknow ignore zone state !\n", __func__);
+		}
+
+	}else{
+		current_input = input_dev;
+	}
+	input_mt_slot(current_input, id);
+	input_report_abs(current_input, ABS_MT_PRESSURE, size);
+	input_report_abs(current_input, ABS_MT_TOUCH_MAJOR, size);
+	input_report_abs(current_input, ABS_MT_TRACKING_ID, id);
+	input_report_abs(current_input, ABS_MT_POSITION_X, x);
+	input_report_abs(current_input, ABS_MT_POSITION_Y, y);
+#else
 	input_mt_slot(input_dev, id);
 	input_report_abs(input_dev, ABS_MT_PRESSURE, size);
 	input_report_abs(input_dev, ABS_MT_TOUCH_MAJOR, size);
 	input_report_abs(input_dev, ABS_MT_TRACKING_ID, id);
 	input_report_abs(input_dev, ABS_MT_POSITION_X, x);
 	input_report_abs(input_dev, ABS_MT_POSITION_Y, y);
+#endif
 #else
 	input_report_key(input_dev, BTN_TOUCH, 1);
 	if ((!size) && (!id)) {
@@ -253,9 +419,18 @@ void gt1x_touch_down(s32 x, s32 y, s32 size, s32 id)
  */
 void gt1x_touch_up(s32 id)
 {
+
 #if GTP_ICS_SLOT_REPORT
+#ifdef CONFIG_NUBIA_GT1X_IGNORE_ZONE_ON
+	slot_ignore[id].slot_zoneid = ZONE_DEFAULT;
 	input_mt_slot(input_dev, id);
 	input_report_abs(input_dev, ABS_MT_TRACKING_ID, -1);
+	input_mt_slot(input_rim_dev, id);
+	input_report_abs(input_rim_dev, ABS_MT_TRACKING_ID, -1);
+#else
+	input_mt_slot(input_dev, id);
+	input_report_abs(input_dev, ABS_MT_TRACKING_ID, -1);
+#endif
 #else
 	input_report_key(input_dev, BTN_TOUCH, 0);
 	input_mt_sync(input_dev);
@@ -328,7 +503,11 @@ static void gt1x_ts_work_func(struct work_struct *work)
 #if GTP_WITH_STYLUS
 	ret = gt1x_touch_event_handler(point_data, input_dev, pen_dev);
 #else
+#ifdef CONFIG_NUBIA_GT1X_IGNORE_ZONE_ON
+	ret = gt1x_touch_event_handler(point_data, current_input, NULL);
+#else
 	ret = gt1x_touch_event_handler(point_data, input_dev, NULL);
+#endif
 #endif
 	if (ret) {
 		return;
@@ -381,7 +560,7 @@ error1:
 /**
  * gt1x_request_irq - Request interrupt.
  * Return
- *      0: succeed, -1: failed.
+ *	  0: succeed, -1: failed.
  */
 static s32 gt1x_request_irq(void)
 {
@@ -470,6 +649,54 @@ static s8 gt1x_request_input_dev(void)
 		GTP_ERROR("Register %s input device failed", input_dev->name);
 		return -ENODEV;
 	}
+
+#ifdef CONFIG_NUBIA_GT1X_IGNORE_ZONE_ON
+	input_rim_dev = input_allocate_device();
+	if (input_rim_dev == NULL) {
+		GTP_ERROR("Failed to allocate input device.");
+		return -ENOMEM;
+	}
+
+	input_rim_dev->evbit[0] = BIT_MASK(EV_SYN) | BIT_MASK(EV_KEY) | BIT_MASK(EV_ABS);
+#if GTP_ICS_SLOT_REPORT
+	input_mt_init_slots(input_rim_dev, 16, 0);	// in case of "out of memory"
+#else
+	input_rim_dev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
+#endif
+	set_bit(INPUT_PROP_DIRECT, input_rim_dev->propbit);
+
+#if GTP_HAVE_TOUCH_KEY
+	for (index = 0; index < GTP_MAX_KEY_NUM; index++) {
+		input_set_capability(input_rim_dev, EV_KEY, gt1x_touch_key_array[index]);
+	}
+#endif
+
+#if GTP_CHANGE_X2Y
+	input_set_abs_params(input_rim_dev, ABS_MT_POSITION_X, 0, gt1x_abs_y_max, 0, 0);
+	input_set_abs_params(input_rim_dev, ABS_MT_POSITION_Y, 0, gt1x_abs_x_max, 0, 0);
+#else
+	input_set_abs_params(input_rim_dev, ABS_MT_POSITION_X, 0, gt1x_abs_x_max, 0, 0);
+	input_set_abs_params(input_rim_dev, ABS_MT_POSITION_Y, 0, gt1x_abs_y_max, 0, 0);
+#endif
+
+	input_set_abs_params(input_rim_dev, ABS_MT_PRESSURE, 0, 255, 0, 0);
+	input_set_abs_params(input_rim_dev, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
+	input_set_abs_params(input_rim_dev, ABS_MT_TRACKING_ID, 0, 255, 0, 0);
+
+	input_rim_dev->name = gt1x_ts_name_rim;
+	input_rim_dev->phys = input_dev_phys;
+	input_rim_dev->id.bustype = BUS_I2C;
+	input_rim_dev->id.vendor = 0xDEAD;
+	input_rim_dev->id.product = 0xBEEF;
+	input_rim_dev->id.version = 10427;
+
+	ret = input_register_device(input_rim_dev);
+	if (ret) {
+		GTP_ERROR("Register %s input device failed", input_rim_dev->name);
+		return -ENODEV;
+	}
+#endif
+
 /*** ZTEMT start 20141218***/
 #if defined(CONFIG_FB)
         fb_notif.notifier_call = fb_notifier_callback;
@@ -642,6 +869,37 @@ static int gtp_pinctrl_init(struct device *dev)
 	}
 	return 0;
 }
+
+#ifdef CONFIG_NUBIA_GT1X_IGNORE_ZONE_ON
+static ssize_t gt1x_c_zone_show(struct device *dev,
+                   struct device_attribute *attr, char *buf)
+{
+	int value = 0;
+	pr_info("gt1x_c_zone_show \n");
+	value = c_zone_flag;
+	if (value < 0) {
+		pr_err("%s: Invalid value\n", __func__);
+		return snprintf(buf, PAGE_SIZE, "error\n");
+	}
+	return snprintf(buf, PAGE_SIZE, "0x%02X\n",value);
+}
+
+static ssize_t gt1x_c_zone_store(struct device *dev,
+    struct device_attribute *attr, const char *buf, size_t count)
+{
+	int rc = 0;
+	int value = 1;
+	pr_info("gt1x_c_zone_store \n");
+	rc = sscanf(buf, "%x", &value);
+	if (rc != 1) {
+		pr_err("%s: Invalid value\n", __func__);
+		return count;
+	}
+	c_zone_flag = value;
+	return count;
+}
+#endif
+
 /*[BUGFIX]Add End by TCTSZ-LZ 2014-5-5,PR-667466. TP INT pull-up enable.*/
 /**
  * gt1x_ic_ver_show -   ic_ver attribute show added by ztemt 2014.12.09.
@@ -843,9 +1101,12 @@ static ssize_t gt1x_wakeup_gesture_store(struct device *dev,
 }
 
 static struct device_attribute gt1x_attrs[] = {
-	__ATTR(ic_ver,         0444, gt1x_ic_ver_show,         NULL),
-	__ATTR(touch_mode,     0664, gt1x_touch_mode_show,     gt1x_touch_mode_store),
+	__ATTR(ic_ver, 0444, gt1x_ic_ver_show, NULL),
+	__ATTR(touch_mode, 0664, gt1x_touch_mode_show, gt1x_touch_mode_store),
 	__ATTR(wakeup_gesture, 0664, gt1x_wakeup_gesture_show, gt1x_wakeup_gesture_store),
+#ifdef CONFIG_NUBIA_GT1X_IGNORE_ZONE_ON
+	__ATTR(c_zone, 0664, gt1x_c_zone_show, gt1x_c_zone_store),
+#endif
 };
 
 /**
@@ -893,6 +1154,9 @@ static void gt1x_remove_sysfs_interfaces(struct device *dev)
 static int gt1x_ts_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	s32 ret = -1;
+#ifdef CONFIG_NUBIA_GT1X_IGNORE_ZONE_ON
+	int i;
+#endif
 #if GTP_AUTO_UPDATE
 	struct task_struct *thread = NULL;
 #endif
@@ -935,6 +1199,16 @@ static int gt1x_ts_probe(struct i2c_client *client, const struct i2c_device_id *
 		goto power_on_failed;
 	}
 
+	gt1x_power_switch(SWITCH_ON);
+
+	/* select i2c address */
+	gt1x_select_addr();
+	msleep(10);
+	ret = gt1x_i2c_test();
+	if(ret){
+		GTP_ERROR("i2c_test failed, gt1x probe exit.");
+		goto i2c_test_failed;
+		}
 	ret = gt1x_init();
 	if (ret) {
 		GTP_ERROR("gt1x init failed. Continue to execute.");
@@ -992,13 +1266,21 @@ static int gt1x_ts_probe(struct i2c_client *client, const struct i2c_device_id *
 		goto test_sysfs_init_failed;
 	}
 
+#ifdef CONFIG_NUBIA_GT1X_IGNORE_ZONE_ON
+	for(i=0;i<10;i++){
+		slot_ignore[i].slot_zoneid = ZONE_DEFAULT;
+	}
+	c_zone_flag = 1;
+	current_input = input_dev;
+#endif
+
 	return 0;
 
 test_sysfs_init_failed:
 	gt1x_remove_sysfs_interfaces(&client->dev);
 create_sys_inf_failed:
 request_input_failed:
-//init_failed:
+i2c_test_failed:
 	ret = gt1x_power_on(&client->dev, 0);
 power_on_failed:
 pinctrl_sel_failed:
@@ -1041,7 +1323,9 @@ static int gt1x_ts_remove(struct i2c_client *client)
 #endif
 
 	input_unregister_device(input_dev);
-
+#ifdef CONFIG_NUBIA_GT1X_IGNORE_ZONE_ON
+	input_unregister_device(input_rim_dev);
+#endif
 	gt1x_remove_sysfs_interfaces(&client->dev);
 
 	gtp_test_sysfs_deinit();
@@ -1063,6 +1347,9 @@ static int gt1x_ts_remove(struct i2c_client *client)
 static int gt1x_ts_suspend(struct device *dev)
 {
 	s32 ret = -1;
+#ifdef CONFIG_NUBIA_GT1X_IGNORE_ZONE_ON
+	s32 i;
+#endif
 #if GTP_HOTKNOT && !HOTKNOT_BLOCK_RW
 	u8 buf[1] = { 0 };
 #endif
@@ -1108,6 +1395,23 @@ static int gt1x_ts_suspend(struct device *dev)
 	gt1x_irq_disable();
 	cancel_work_sync(&gt1x_work);
 
+#if GTP_ICS_SLOT_REPORT
+//nubia clear point
+	for (i = 0; i < GTP_MAX_TOUCH; i++) {
+		input_mt_slot(input_dev, i);
+		input_mt_report_slot_state(input_dev,
+			MT_TOOL_FINGER, false);
+	}
+	input_sync(input_dev);
+#ifdef CONFIG_NUBIA_GT1X_IGNORE_ZONE_ON
+	for (i = 0; i < GTP_MAX_TOUCH; i++) {
+		input_mt_slot(input_rim_dev, i);
+		input_mt_report_slot_state(input_rim_dev,
+			MT_TOOL_FINGER, false);
+	}
+	input_sync(input_rim_dev);
+#endif
+#endif
 /*
 #if GTP_GESTURE_WAKEUP
 	gesture_clear_wakeup_data();

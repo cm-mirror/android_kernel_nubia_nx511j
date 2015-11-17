@@ -1624,9 +1624,9 @@ config TEST_KSTRTOX
 	tristate "Test kstrto*() family of functions at runtime"
 
 config ZTEMT_PANIC_BOOTMODE
-	bool "Enable panic bootmode if kernel panic"
-	default y
-	help
-	  Select this option will enable feature of setting a 'panic' flag into
+        bool "Enable panic bootmode if kernel panic"
+        default y
+        help
+          Select this option will enable feature of setting a 'panic' flag into
           REBOOT_REASON_ADDR, thus the bootloader can detect the panic reboot reason
-          and append a boomode to cmdline. 
+          and append a boomode to cmdline.

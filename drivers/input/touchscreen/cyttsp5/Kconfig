@@ -244,5 +244,8 @@ config TOUCHSCREEN_CYPRESS_CYTTSP5_DEBUG_MDL
 	  To compile this driver as a module, choose M here: the
 	  module will be called cyttsp5_debug.
 
+config NUBIA_CYTTSP5_IGNORE_ZONE_ON
+	bool "cyttsp5 ignore zone on"
+	default n
 
 endif

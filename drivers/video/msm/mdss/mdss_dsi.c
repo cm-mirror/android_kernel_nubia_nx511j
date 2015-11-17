@@ -730,10 +730,6 @@ static int mdss_dsi_unblank(struct mdss_panel_data *pdata)
 		ctrl_pdata->ctrl_state |= CTRL_STATE_PANEL_INIT;
 	}
 
-#ifdef CONFIG_ZTEMT_LCD_DISP_PREFERENCES
-	zte_disp_preferences();
-#endif
-
 	if ((pdata->panel_info.type == MIPI_CMD_PANEL) &&
 		mipi->vsync_enable && mipi->hw_vsync_mode) {
 		mdss_dsi_set_tear_on(ctrl_pdata);
@@ -1243,6 +1239,9 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 		if (ctrl_pdata->on_cmds.link_state == DSI_HS_MODE)
 			rc = mdss_dsi_unblank(pdata);
 		pdata->panel_info.esd_rdy = true;
+#ifdef CONFIG_ZTEMT_LCD_DISP_PREFERENCES
+		zte_disp_preferences();
+#endif
 		break;
 	case MDSS_EVENT_BLANK:
 		power_state = (int) (unsigned long) arg;

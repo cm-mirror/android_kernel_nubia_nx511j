@@ -19,10 +19,6 @@ extern int sysctl_extfrag_threshold;
 extern int sysctl_extfrag_handler(struct ctl_table *table, int write,
 			void __user *buffer, size_t *length, loff_t *ppos);
 
-extern int sysctl_shrink_all_memory;
-int sysctl_shrink_all_memory_handler(struct ctl_table *table, int write,
-			void __user *buffer, size_t *length, loff_t *ppos); 
-
 extern int fragmentation_index(struct zone *zone, unsigned int order);
 extern unsigned long try_to_compact_pages(struct zonelist *zonelist,
 			int order, gfp_t gfp_mask, nodemask_t *mask,

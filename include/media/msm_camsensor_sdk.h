@@ -5,7 +5,7 @@
 
 #define KVERSION 0x1
 
-#define MAX_POWER_CONFIG      14
+#define MAX_POWER_CONFIG      14 // wangdeyong change,default 12 is too small, for sensor imx234& imx179
 #define GPIO_OUT_LOW          (0 << 1)
 #define GPIO_OUT_HIGH         (1 << 1)
 #define CSI_EMBED_DATA        0x12
@@ -312,6 +312,8 @@ struct region_params_t {
 	*/
 	uint16_t step_bound[2];
 	uint16_t code_per_step;
+	/* qvalue for converting float type numbers to integer format */
+	uint32_t qvalue;
 };
 
 struct reg_settings_t {

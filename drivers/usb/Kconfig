@@ -81,7 +81,6 @@ config ZTEMT_USB_DEBUG
 	default n
 	help
 	  Use ZTEMT USB driver debug info.
-
 if USB
 
 source "drivers/usb/core/Kconfig"

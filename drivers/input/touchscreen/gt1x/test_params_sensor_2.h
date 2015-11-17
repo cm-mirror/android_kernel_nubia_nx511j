@@ -26,14 +26,14 @@
 #endif
 
 #define TEST_TYPES                         0x401307
-#define MAX_LIMIT_VALUE                    4080
-#define MIN_LIMIT_VALUE                    1280
+#define MAX_LIMIT_VALUE                    4100
+#define MIN_LIMIT_VALUE                    900
 #define ACCORD_LIMIT                       500
 #define OFFEST_LIMIT                       30
 #define PERMIT_JITTER_LIMIT                30
 #define SPECIAL_LIMIT                      30
 #define MAX_KEY_LIMIT_VALUE                3720
-#define MIN_KEY_LIMIT_VALUE                1120
+#define MIN_KEY_LIMIT_VALUE                700
 #define RAWDATA_UNIFORMITY                 0
 #define MODULE_TYPE                        2
 #define VERSION_EQU                        "1143_1.1.0_0.1"

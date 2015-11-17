@@ -10,11 +10,14 @@
  * GNU General Public License for more details.
  */
  
-#include "zte-dsi-sharp-panel-nt35595-1080p-5p0-video.dtsi"
-#include "zte-dsi-sharp-panel-nt35595-1080p-5p0-command.dtsi"
-#include "zte-dsi-samsung-panel-s6e3fa3x01-1080p-5p2-command.dtsi"
+#include "nubia-dsi-sharp-panel-nt35595-1080p-5p0-video.dtsi"
+#include "nubia-dsi-sharp-panel-nt35595-1080p-5p0-command.dtsi"
 
 #include "msm8939-lcd-pinctrl.dtsi"
+
+&i2c_3 {
+	status = "ok";
+};
 
 &soc {
 	i2c@78b7000 { /* BLSP1 QUP3 */
@@ -25,8 +28,8 @@
 			vcc_i2c-supply = <&pm8916_l5>;
 			pinctrl-0 = <&vsp_en_gpio_active &vsn_en_gpio_active>;
 			pinctrl-1 = <&vsp_en_gpio_suspend &vsn_en_gpio_suspend>;
-			vsp-en-gpio    = <&msm_gpio 97 0x00>;
-			vsn-en-gpio    = <&msm_gpio 98 0x00>;
+			vsp-en-gpio = <&msm_gpio 97 0x00>;
+			vsn-en-gpio = <&msm_gpio 98 0x00>;
 		};
 	};
 };
@@ -41,15 +44,19 @@
 	qcom,mdss-dsi-bl-pmic-bank-select = <0>;
 	qcom,mdss-dsi-pwm-gpio = <&pm8916_mpps 4 0>;
 	qcom,cont-splash-enabled;
-    qcom,avdd-enabled;
-    qcom,avdd-vsp-voltage = <5500>;
-    qcom,avdd-vsn-voltage = <5500>;
-    qcom,avdd-vsp-vsn-delay = <10>;
-    qcom,befor-panel-on-cmd-delay = <10>;
+	qcom,avdd-enabled;
+	qcom,avdd-vsp-voltage = <5500>;
+	qcom,avdd-vsn-voltage = <5500>;
+	qcom,avdd-vsp-vsn-delay = <10>;
+	qcom,befor-panel-on-cmd-delay = <10>;
 
-    //LP11
-    qcom,mdss-dsi-lp11-init;
-    qcom,mdss-dsi-init-delay-us = <20000>;
+	//Dimming control
+	qcom,disable-dimming-when-suspend;
+	qcom,disable-dimming-when-resume;
+
+	//LP11
+	qcom,mdss-dsi-lp11-init;
+	qcom,mdss-dsi-init-delay-us = <20000>;
 	//qcom,mdss-dsi-hfp-power-mode;
 	//qcom,mdss-dsi-hsa-power-mode;
 	//qcom,mdss-dsi-hbp-power-mode;
@@ -68,15 +75,19 @@
 	qcom,mdss-dsi-pwm-gpio = <&pm8916_mpps 4 0>;
 	qcom,cont-splash-enabled;
 	qcom,mdss-dsi-panel-clockrate = <933000000>;
-    qcom,avdd-enabled;
-    qcom,avdd-vsp-voltage = <5500>;
-    qcom,avdd-vsn-voltage = <5500>;
-    qcom,avdd-vsp-vsn-delay = <10>;
-    qcom,befor-panel-on-cmd-delay = <10>;
+	qcom,avdd-enabled;
+	qcom,avdd-vsp-voltage = <5500>;
+	qcom,avdd-vsn-voltage = <5500>;
+	qcom,avdd-vsp-vsn-delay = <10>;
+	qcom,befor-panel-on-cmd-delay = <10>;
 
-    //LP11
-    qcom,mdss-dsi-lp11-init;
-    qcom,mdss-dsi-init-delay-us = <20000>;
+	//Dimming control
+	qcom,disable-dimming-when-suspend;
+	qcom,disable-dimming-when-resume;
+
+	//LP11
+	qcom,mdss-dsi-lp11-init;
+	qcom,mdss-dsi-init-delay-us = <20000>;
 	//qcom,mdss-dsi-hfp-power-mode;
 	//qcom,mdss-dsi-hsa-power-mode;
 	//qcom,mdss-dsi-hbp-power-mode;
@@ -88,33 +99,6 @@
 	//qcom,mdss-dsi-panel-status-check-mode = "bta_check";
 	//qcom,mdss-dsi-panel-status-check-mode = "reg_read_zte";
 };
-
-&dsi_sumsang_s6e3fa3x01_1080_5p2_cmd {
-	qcom,mdss-dsi-bl-pmic-pwm-frequency = <100>;
-	qcom,mdss-dsi-bl-pmic-bank-select = <0>;
-	qcom,mdss-dsi-pwm-gpio = <&pm8916_mpps 4 0>;
-	qcom,cont-splash-enabled;
-    qcom,avdd-enabled;
-    qcom,avdd-vsp-voltage = <5500>;
-    qcom,avdd-vsn-voltage = <5500>;
-    qcom,avdd-vsp-vsn-delay = <15>;
-    qcom,befor-panel-on-cmd-delay = <10>;
-
-    //LP11
-    qcom,mdss-dsi-lp11-init;
-    qcom,mdss-dsi-init-delay-us = <30000>;
-	//qcom,mdss-dsi-hfp-power-mode;
-	//qcom,mdss-dsi-hsa-power-mode;
-	//qcom,mdss-dsi-hbp-power-mode;
-
-	//ESD check enable
-	//qcom,esd-check-enabled;
-
-	//ESD check method choice and only choose one
-	//qcom,mdss-dsi-panel-status-check-mode = "bta_check";
-	//qcom,mdss-dsi-panel-status-check-mode = "reg_read_zte";
-};
-
 
 &pmx_mdss {
 /*
@@ -145,8 +129,8 @@
 */
 	qcom,dsi-pref-prim-pan = <&dsi_sharp_nt35595_1080_5p0_cmd>;
 	pinctrl-names = "mdss_default", "mdss_sleep";
-	pinctrl-0 = <&mdss_te_active &mdss_reset_active>;
-	pinctrl-1 = <&mdss_te_suspend &mdss_reset_suspend>;
+	pinctrl-0 = <&mdss_te_active &mdss_te_check_active>;
+	pinctrl-1 = <&mdss_te_suspend &mdss_te_check_suspend>;
 
 	qcom,platform-te-gpio = <&msm_gpio 24 0>;
 	qcom,platform-reset-gpio = <&msm_gpio 25 0>;

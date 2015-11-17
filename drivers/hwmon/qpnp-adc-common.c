@@ -46,8 +46,7 @@
    will result in the below table size to increase by 10 times */
 
 #if (defined CONFIG_ZTEMT_COMM_CHARGE)   \
- || (defined CONFIG_ZTEMT_BQ24296M_CHARGE) \
- || (defined CONFIG_ZTEMT_BQ24296_CHARGE)
+ || (defined CONFIG_ZTEMT_BQ24296M_CHARGE) 
 static const struct qpnp_vadc_map_pt adcmap_btm_threshold[] = {
 	{-300, 1626},
 	{-250, 1573},
@@ -823,6 +822,28 @@ int32_t qpnp_adc_tdkntcg_therm(struct qpnp_vadc_chip *chip,
 }
 EXPORT_SYMBOL(qpnp_adc_tdkntcg_therm);
 
+#ifdef CONFIG_ZTEMT_BQ27520_BATTERY
+#include <linux/power_supply.h>
+static struct power_supply	 *qpnp_usb_psy = NULL;
+
+extern int bq27520_get_ibatt_now(void);
+static bool qpnp_is_charger_present(void)
+{
+	union power_supply_propval ret = {0,};
+
+	if (qpnp_usb_psy == NULL)
+		qpnp_usb_psy = power_supply_get_by_name("usb");
+	
+	if (qpnp_usb_psy) {
+		qpnp_usb_psy->get_property(qpnp_usb_psy, POWER_SUPPLY_PROP_PRESENT, &ret);
+		return ret.intval;
+	}
+
+	return false;
+}
+
+#endif
+
 int32_t qpnp_adc_scale_batt_therm(struct qpnp_vadc_chip *chip,
 		int32_t adc_code,
 		const struct qpnp_adc_properties *adc_properties,
@@ -834,6 +855,23 @@ int32_t qpnp_adc_scale_batt_therm(struct qpnp_vadc_chip *chip,
 	bat_voltage = qpnp_adc_scale_ratiometric_calib(adc_code,
 			adc_properties, chan_properties);
 
+    #ifdef CONFIG_ZTEMT_BQ27520_BATTERY
+    {
+        int battery_ma = bq27520_get_ibatt_now();
+		int r_senser = 17;
+		int usbin = qpnp_is_charger_present();
+		int need_comp = 1;
+
+		if((battery_ma < 0) && !usbin)
+			need_comp = 0;
+
+        if(need_comp){
+			bat_voltage = bat_voltage + r_senser * battery_ma / 1000;
+			pr_debug("new_bat_voltage=%lld comp_mv=%d\n", bat_voltage, r_senser * battery_ma/1000);
+        }
+    }
+	#endif
+	
 	adc_chan_result->measurement = bat_voltage;
 
 	return qpnp_adc_map_temp_voltage(

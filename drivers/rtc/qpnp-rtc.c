@@ -669,7 +669,6 @@ static const struct dev_pm_ops qpnp_rtc_pm_ops = {
 	.resume = print_resume_time,
 };
 #endif
-
 static int qpnp_rtc_remove(struct spmi_device *spmi)
 {
 	struct qpnp_rtc *rtc_dd = dev_get_drvdata(&spmi->dev);

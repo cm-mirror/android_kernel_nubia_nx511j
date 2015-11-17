@@ -1106,7 +1106,7 @@ cull_mlocked:
 		if (PageSwapCache(page))
 			try_to_free_swap(page);
 		unlock_page(page);
-		list_add(&page->lru, &ret_pages);
+		putback_lru_page(page);
 		continue;
 
 activate_locked:
@@ -1387,31 +1387,30 @@ int isolate_lru_page(struct page *page)
 	return ret;
 }
 
-static int __too_many_isolated(struct zone *zone, int file,
-	struct scan_control *sc, int safe)
+/*
+ * A direct reclaimer may isolate SWAP_CLUSTER_MAX pages from the LRU list and
+ * then get resheduled. When there are massive number of tasks doing page
+ * allocation, such sleeping direct reclaimers may keep piling up on each CPU,
+ * the LRU list will go small and be scanned faster than necessary, leading to
+ * unnecessary swapping, thrashing and OOM.
+ */
+static int too_many_isolated(struct zone *zone, int file,
+		struct scan_control *sc)
 {
 	unsigned long inactive, isolated;
 
+	if (current_is_kswapd())
+		return 0;
+
+	if (!global_reclaim(sc))
+		return 0;
+
 	if (file) {
-		if (safe) {
-			inactive = zone_page_state_snapshot(zone,
-					NR_INACTIVE_FILE);
-			isolated = zone_page_state_snapshot(zone,
-					NR_ISOLATED_FILE);
-		} else {
-			inactive = zone_page_state(zone, NR_INACTIVE_FILE);
-			isolated = zone_page_state(zone, NR_ISOLATED_FILE);
-		}
+		inactive = zone_page_state(zone, NR_INACTIVE_FILE);
+		isolated = zone_page_state(zone, NR_ISOLATED_FILE);
 	} else {
-		if (safe) {
-			inactive = zone_page_state_snapshot(zone,
-					NR_INACTIVE_ANON);
-			isolated = zone_page_state_snapshot(zone,
-					NR_ISOLATED_ANON);
-		} else {
-			inactive = zone_page_state(zone, NR_INACTIVE_ANON);
-			isolated = zone_page_state(zone, NR_ISOLATED_ANON);
-		}
+		inactive = zone_page_state(zone, NR_INACTIVE_ANON);
+		isolated = zone_page_state(zone, NR_ISOLATED_ANON);
 	}
 
 	/*
@@ -1423,32 +1422,6 @@ static int __too_many_isolated(struct zone *zone, int file,
 		inactive >>= 3;
 
 	return isolated > inactive;
-}
-
-/*
- * A direct reclaimer may isolate SWAP_CLUSTER_MAX pages from the LRU list and
- * then get resheduled. When there are massive number of tasks doing page
- * allocation, such sleeping direct reclaimers may keep piling up on each CPU,
- * the LRU list will go small and be scanned faster than necessary, leading to
- * unnecessary swapping, thrashing and OOM.
- */
-static int too_many_isolated(struct zone *zone, int file,
-		struct scan_control *sc, int safe)
-{
-	if (current_is_kswapd())
-		return 0;
-
-	if (!global_reclaim(sc))
-		return 0;
-
-	if (unlikely(__too_many_isolated(zone, file, sc, 0))) {
-		if (safe)
-			return __too_many_isolated(zone, file, sc, safe);
-		else
-			return 1;
-	}
-
-	return 0;
 }
 
 static noinline_for_stack void
@@ -1524,18 +1497,15 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	unsigned long nr_immediate = 0;
 	isolate_mode_t isolate_mode = 0;
 	int file = is_file_lru(lru);
-	int safe = 0;
 	struct zone *zone = lruvec_zone(lruvec);
 	struct zone_reclaim_stat *reclaim_stat = &lruvec->reclaim_stat;
 
-	while (unlikely(too_many_isolated(zone, file, sc, safe))) {
+	while (unlikely(too_many_isolated(zone, file, sc))) {
 		congestion_wait(BLK_RW_ASYNC, HZ/10);
 
 		/* We are about to die and free our memory. Return now. */
 		if (fatal_signal_pending(current))
 			return SWAP_CLUSTER_MAX;
-
-		safe = 1;
 	}
 
 	lru_add_drain();
@@ -3442,7 +3412,7 @@ void wakeup_kswapd(struct zone *zone, int order, enum zone_type classzone_idx)
 	wake_up_interruptible(&pgdat->kswapd_wait);
 }
 
-
+#ifdef CONFIG_HIBERNATION
 /*
  * Try to free `nr_to_reclaim' of memory, system-wide, and return the number of
  * freed pages.
@@ -3455,12 +3425,12 @@ unsigned long shrink_all_memory(unsigned long nr_to_reclaim)
 {
 	struct reclaim_state reclaim_state;
 	struct scan_control sc = {
-		.gfp_mask = ( GFP_HIGHUSER_MOVABLE | GFP_RECLAIM_MASK ),
+		.gfp_mask = GFP_HIGHUSER_MOVABLE,
 		.may_swap = 1,
 		.may_unmap = 1,
 		.may_writepage = 1,
 		.nr_to_reclaim = nr_to_reclaim,
-		.hibernation_mode = 0,
+		.hibernation_mode = 1,
 		.order = 0,
 		.priority = DEF_PRIORITY,
 	};
@@ -3484,18 +3454,7 @@ unsigned long shrink_all_memory(unsigned long nr_to_reclaim)
 
 	return nr_reclaimed;
 }
-
-int sysctl_shrink_all_memory;
-
-/* This is the entry point for compacting all nodes via /proc/sys/vm */
-int sysctl_shrink_all_memory_handler(struct ctl_table *table, int write,
-			void __user *buffer, size_t *length, loff_t *ppos)
-{
-	if (write)
-		shrink_all_memory(totalram_pages);
-
-	return 0;
-}
+#endif /* CONFIG_HIBERNATION */
 
 /* It's optimal to keep kswapds on the same CPUs as their memory, but
    not required for correctness.  So if the last cpu in a node goes

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -23,9 +23,7 @@
 #include <linux/err.h>
 
 #include "mdss_dsi.h"
-
-#include "zte_lcd_avdd.h"
-#include "zte_lcd_dsi.h"
+#include "nubia_lcd_avdd.h"
 
 #ifdef CONFIG_ZTEMT_LCD_DISP_PREFERENCES
 extern struct mdss_dsi_ctrl_pdata *zte_mdss_dsi_ctrl;
@@ -66,7 +64,7 @@ static void mdss_dsi_panel_bklt_pwm(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 		pr_err("%s: no PWM\n", __func__);
 		return;
 	}
-
+	pr_err("[lcd]%s: level=%d\n", __func__, level);
 	if (level == 0) {
 		if (ctrl->pwm_enabled) {
 			ret = pwm_config_us(ctrl->pwm_bl, level,
@@ -194,6 +192,36 @@ static struct dsi_cmd_desc dimming_cmd = {
 	dimming
 };
 
+static void mdss_dsi_panel_dimming_enable(struct mdss_dsi_ctrl_pdata *ctrl, bool enable)
+{
+	struct dcs_cmd_req cmdreq;
+	struct mdss_panel_info *pinfo;
+	pinfo = &(ctrl->panel_data.panel_info);
+	if (pinfo->dcs_cmd_by_left) {
+		if (ctrl->ndx != DSI_CTRL_LEFT) {
+			pr_err("[lcd]%s: %d: ctrl->ndx error \n", __func__, __LINE__);
+			return;
+		}
+	}
+
+	if (enable) {
+		dimming[1] = 0x2C;
+	} else {
+		dimming[1] = 0x24;
+	}
+
+	memset(&cmdreq, 0, sizeof(cmdreq));
+	cmdreq.cmds = &dimming_cmd;
+	cmdreq.cmds_cnt = 1;
+	cmdreq.flags = CMD_REQ_COMMIT | CMD_CLK_CTRL;
+	cmdreq.rlen = 0;
+	cmdreq.cb = NULL;
+	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
+
+	pr_debug("[lcd]%s: %d: %s dimming \n", __func__, __LINE__, enable ? "enable" : "disable");
+}
+
+
 static void mdss_dsi_panel_bklt_dcs(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 {
 	struct dcs_cmd_req cmdreq;
@@ -206,25 +234,20 @@ static void mdss_dsi_panel_bklt_dcs(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 			return;
 	}
 
-	pr_debug("%s: level=%d\n", __func__, level);
-
-	led_pwm1[1] = (unsigned char)level;
-
-	pr_err("[lcd]%s: %d: level=%d\n", __func__, __LINE__, level);
-
 	if (pinfo->disable_dimming_when_suspend) {
-		if (level == 0) {
-			/* dimming off */
-			dimming[1] = 0x24;
-			memset(&cmdreq, 0, sizeof(cmdreq));
-			cmdreq.cmds = &dimming_cmd;
-			cmdreq.cmds_cnt = 1;
-			cmdreq.flags = CMD_REQ_COMMIT | CMD_CLK_CTRL;
-			cmdreq.rlen = 0;
-			cmdreq.cb = NULL;
-			mdss_dsi_cmdlist_put(ctrl, &cmdreq);
+		if (level == 0)
+			mdss_dsi_panel_dimming_enable(ctrl, false);
+	}
+	if (pinfo->disable_dimming_when_resume) {
+		if (last_level == 0 && level < 30) {
+			msleep(20);
+			mdss_dsi_panel_dimming_enable(ctrl, false);
 		}
 	}
+
+	pr_err("%s: level=%d\n", __func__, level);
+
+	led_pwm1[1] = (unsigned char)level;
 
 	memset(&cmdreq, 0, sizeof(cmdreq));
 	cmdreq.cmds = &backlight_cmd;
@@ -235,20 +258,13 @@ static void mdss_dsi_panel_bklt_dcs(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 
 	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
 
-	if (pinfo->disable_dimming_when_suspend) {
-		if (last_level == 0) {
-			/* dimming on */
-			dimming[1] = 0x2c;
-			memset(&cmdreq, 0, sizeof(cmdreq));
-			cmdreq.cmds = &dimming_cmd;
-			cmdreq.cmds_cnt = 1;
-			cmdreq.flags = CMD_REQ_COMMIT | CMD_CLK_CTRL;
-			cmdreq.rlen = 0;
-			cmdreq.cb = NULL;
-			mdss_dsi_cmdlist_put(ctrl, &cmdreq);
+	if (pinfo->disable_dimming_when_resume) {
+		if (last_level == 0 && level < 30) {
+			msleep(20);
+			mdss_dsi_panel_dimming_enable(ctrl, true);
 		}
-		last_level = level;
 	}
+	last_level = level;
 }
 
 static int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
@@ -264,16 +280,14 @@ static int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 			goto disp_en_gpio_err;
 		}
 	}
-
-    if (gpio_is_valid(ctrl_pdata->rst_gpio)) {
-    	rc = gpio_request(ctrl_pdata->rst_gpio, "disp_rst");
-    	if (rc) {
-    		pr_err("request reset gpio failed, rc=%d\n",
-    			rc);
-    		goto rst_gpio_err;
-    	}
-    }
-
+	if (gpio_is_valid(ctrl_pdata->rst_gpio)) {
+		rc = gpio_request(ctrl_pdata->rst_gpio, "disp_rst_n");
+		if (rc) {
+			pr_err("request reset gpio failed, rc=%d\n",
+				rc);
+			goto rst_gpio_err;
+		}
+	}
 	if (gpio_is_valid(ctrl_pdata->bklt_en_gpio)) {
 		rc = gpio_request(ctrl_pdata->bklt_en_gpio,
 						"bklt_enable");
@@ -343,19 +357,19 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 			if (gpio_is_valid(ctrl_pdata->disp_en_gpio))
 				gpio_direction_output((ctrl_pdata->disp_en_gpio), 1);
 
-            if (pinfo->avdd_enabled){
-		    if (pinfo->delay_18_to_55)
-			mdelay(pinfo->delay_18_to_55);
-                lcd_avdd_on(pinfo->avdd_vsp_voltage, pinfo->avdd_vsn_voltage, pinfo->avdd_vsp_vsn_delay);
-                msleep(pinfo->before_panel_on_cmd_delay);
-            }
+			if (pinfo->avdd_enabled) {
+				if (pinfo->delay_18_to_55)
+					mdelay(pinfo->delay_18_to_55);
+				lcd_avdd_on(pinfo->avdd_vsp_voltage, pinfo->avdd_vsn_voltage, pinfo->avdd_vsp_vsn_delay);
+				msleep(pinfo->before_panel_on_cmd_delay);
+			}
 
 			for (i = 0; i < pdata->panel_info.rst_seq_len; ++i) {
 				gpio_direction_output((ctrl_pdata->rst_gpio),
 					pdata->panel_info.rst_seq[i]);
 				if (pdata->panel_info.rst_seq[++i])
 					usleep(pinfo->rst_seq[i] * 1000);
-                pr_err("%s: enable %d rst_gpio=%d\n", __func__, pdata->panel_info.rst_seq[i], gpio_get_value(ctrl_pdata->rst_gpio));
+				pr_err("%s: enable %d rst_gpio=%d\n", __func__, pdata->panel_info.rst_seq[i], gpio_get_value(ctrl_pdata->rst_gpio));
 			}
 
 			if (gpio_is_valid(ctrl_pdata->bklt_en_gpio))
@@ -381,11 +395,10 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 				gpio_free(ctrl_pdata->rst_gpio);
 			}
 		}
-        if (pinfo->avdd_enabled)
-        {
-            lcd_avdd_off(pinfo->avdd_vsp_vsn_delay, pinfo->avdd_vsp_vsn_delay);
+		if (pinfo->avdd_enabled) {
+			lcd_avdd_off(pinfo->avdd_vsp_vsn_delay, pinfo->avdd_vsp_vsn_delay);
 			msleep(pinfo->before_avdd_off_delay);
-        }
+		}
 		if (gpio_is_valid(ctrl_pdata->bklt_en_gpio)) {
 			gpio_direction_output((ctrl_pdata->bklt_en_gpio), 0);
 			gpio_free(ctrl_pdata->bklt_en_gpio);
@@ -1244,52 +1257,49 @@ static int mdss_dsi_parse_panel_features(struct device_node *np,
 					__func__, __LINE__);
 	}
 
-	pinfo->mipi.force_clk_lane_hs = of_property_read_bool(np,
-		"qcom,clk-lane-hs-force-enabled");
-	pr_info("%s clk lene hs force enabled: %d\n", __func__,
-			pinfo->mipi.force_clk_lane_hs);
+	pinfo->avdd_enabled = of_property_read_bool(np, "qcom,avdd-enabled");
+	if (pinfo->avdd_enabled) {
+		printk(KERN_INFO "[lcd] %s: %d: avdd_enabled enable\n",__func__,__LINE__);
 
+		rc = of_property_read_u32(np, "qcom,avdd-vsp-voltage", &tmp);
+		pinfo->avdd_vsp_voltage = (!rc ? tmp : 5000);
+		printk(KERN_INFO "[lcd] %s: %d: avdd_vsp_voltage is %d\n",__func__,__LINE__,pinfo->avdd_vsp_voltage);
 
-    pinfo->avdd_enabled = of_property_read_bool(np, "qcom,avdd-enabled");
-    if (pinfo->avdd_enabled)
-    {
-        printk(KERN_INFO "[lcd] %s: %d: avdd_enabled enable\n",__func__,__LINE__);
+		rc = of_property_read_u32(np, "qcom,avdd-vsn-voltage", &tmp);
+		pinfo->avdd_vsn_voltage = (!rc ? tmp : 5000);
+		printk(KERN_INFO "[lcd] %s: %d: avdd_vsn_voltage is %d\n",__func__,__LINE__,pinfo->avdd_vsn_voltage);
 
-        rc = of_property_read_u32(np, "qcom,avdd-vsp-voltage", &tmp);
-	    pinfo->avdd_vsp_voltage = (!rc ? tmp : 5000);
-        printk(KERN_INFO "[lcd] %s: %d: avdd_vsp_voltage is %d\n",__func__,__LINE__,pinfo->avdd_vsp_voltage);
+		rc = of_property_read_u32(np, "qcom,avdd-vsp-vsn-delay", &tmp);
+		pinfo->avdd_vsp_vsn_delay = (!rc ? tmp : 0);
+		printk(KERN_INFO "[lcd] %s: %d: avdd_vsp_vsn_delay is %d\n",__func__,__LINE__,pinfo->avdd_vsp_vsn_delay);
 
-        rc = of_property_read_u32(np, "qcom,avdd-vsn-voltage", &tmp);
-        pinfo->avdd_vsn_voltage = (!rc ? tmp : 5000);
-        printk(KERN_INFO "[lcd] %s: %d: avdd_vsn_voltage is %d\n",__func__,__LINE__,pinfo->avdd_vsn_voltage);
+		rc = of_property_read_u32(np, "qcom,befor-avdd-off-delay", &tmp);
+		pinfo->before_avdd_off_delay = (!rc ? tmp : 0);
+		printk(KERN_INFO "[lcd] %s: %d: before_avdd_off_delay is %d\n",__func__,__LINE__,pinfo->before_avdd_off_delay);
 
-        rc = of_property_read_u32(np, "qcom,avdd-vsp-vsn-delay", &tmp);
-        pinfo->avdd_vsp_vsn_delay = (!rc ? tmp : 0);
-        printk(KERN_INFO "[lcd] %s: %d: avdd_vsp_vsn_delay is %d\n",__func__,__LINE__,pinfo->avdd_vsp_vsn_delay);
+		rc = of_property_read_u32(np, "qcom,befor-panel-on-cmd-delay", &tmp);
+		pinfo->before_panel_on_cmd_delay = (!rc ? tmp : 0);
+		printk(KERN_INFO "[lcd] %s: %d: before_panel_on_cmd_delay is %d\n",__func__,__LINE__,pinfo->before_panel_on_cmd_delay);
 
-        rc = of_property_read_u32(np, "qcom,befor-avdd-off-delay", &tmp);
-        pinfo->before_avdd_off_delay = (!rc ? tmp : 0);
-        printk(KERN_INFO "[lcd] %s: %d: before_avdd_off_delay is %d\n",__func__,__LINE__,pinfo->before_avdd_off_delay);
+		rc = of_property_read_u32(np, "qcom,18-to-55-delay", &tmp);
+		pinfo->delay_18_to_55 = (!rc ? tmp : 0);
+		printk(KERN_INFO "[lcd] %s: %d: delay_18_to_55 is %d\n",__func__,__LINE__, pinfo->delay_18_to_55);
 
-        rc = of_property_read_u32(np, "qcom,befor-panel-on-cmd-delay", &tmp);
-        pinfo->before_panel_on_cmd_delay = (!rc ? tmp : 0);
-        printk(KERN_INFO "[lcd] %s: %d: before_panel_on_cmd_delay is %d\n",__func__,__LINE__,pinfo->before_panel_on_cmd_delay);
+		pinfo->rst_gpio_before_avdd_off = of_property_read_bool(np, "qcom,rst-gpio-before-avdd-off");
+		printk(KERN_INFO "[lcd] %s: %d: rst_gpio_before_avdd_off is %d\n",__func__,__LINE__, pinfo->rst_gpio_before_avdd_off);
+	}
+	else {
+		printk(KERN_INFO "[lcd] %s: %d: avdd_enabled disabled\n",__func__,__LINE__);
+	}
 
-        rc = of_property_read_u32(np, "qcom,18-to-55-delay", &tmp);
-        pinfo->delay_18_to_55 = (!rc ? tmp : 0);
-        printk(KERN_INFO "[lcd] %s: %d: delay_18_to_55 is %d\n",__func__,__LINE__, pinfo->delay_18_to_55);
+	pinfo->disable_dimming_when_suspend = of_property_read_bool(np, "qcom,disable-dimming-when-suspend");
+	printk(KERN_INFO "[lcd] %s: %d: disable_dimming_when_suspend is %d\n",
+		__func__, __LINE__, pinfo->disable_dimming_when_suspend);
 
-        pinfo->rst_gpio_before_avdd_off = of_property_read_bool(np, "qcom,rst-gpio-before-avdd-off");
-        printk(KERN_INFO "[lcd] %s: %d: rst_gpio_before_avdd_off is %d\n",__func__,__LINE__, pinfo->rst_gpio_before_avdd_off);
+	pinfo->disable_dimming_when_resume = of_property_read_bool(np, "qcom,disable-dimming-when-resume");
+	printk(KERN_INFO "[lcd] %s: %d: disable_dimming_when_resume is %d\n",
+		__func__, __LINE__, pinfo->disable_dimming_when_resume);
 
-        pinfo->disable_dimming_when_suspend = of_property_read_bool(np, "qcom,disable-dimming-when-suspend");
-        printk(KERN_INFO "[lcd] %s: %d: disable_dimming_when_suspend is %d\n",
-			__func__, __LINE__, pinfo->disable_dimming_when_suspend);
-    }
-    else
-    {
-        printk(KERN_INFO "[lcd] %s: %d: avdd_enabled disabled\n",__func__,__LINE__);
-    }
 	return 0;
 }
 
@@ -1542,7 +1552,6 @@ static int mdss_panel_parse_dt(struct device_node *np,
 
 	ctrl_pdata->bklt_ctrl = UNKNOWN_CTRL;
 	data = of_get_property(np, "qcom,mdss-dsi-bl-pmic-control-type", NULL);
-    printk(KERN_INFO "[lcd] %s: %d: bl_ctrl is %s\n",__func__,__LINE__,data);
 	if (data) {
 		if (!strncmp(data, "bl_ctrl_wled", 12)) {
 			led_trigger_register_simple("bkl-trigger",
@@ -1596,11 +1605,9 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	pinfo->brightness_max = (!rc ? tmp : MDSS_MAX_BL_BRIGHTNESS);
 	rc = of_property_read_u32(np, "qcom,mdss-dsi-bl-min-level", &tmp);
 	pinfo->bl_min = (!rc ? tmp : 0);
-    printk(KERN_INFO "[lcd] %s: %d: bl_min is %d\n",__func__,__LINE__,pinfo->bl_min);
 	rc = of_property_read_u32(np, "qcom,mdss-dsi-bl-max-level", &tmp);
 	pinfo->bl_max = (!rc ? tmp : 255);
 	ctrl_pdata->bklt_max = pinfo->bl_max;
-    printk(KERN_INFO "[lcd] %s: %d: bl_max is %d\n",__func__,__LINE__,pinfo->bl_max);
 
 	rc = of_property_read_u32(np, "qcom,mdss-dsi-interleave-mode", &tmp);
 	pinfo->mipi.interleave_mode = (!rc ? tmp : 0);

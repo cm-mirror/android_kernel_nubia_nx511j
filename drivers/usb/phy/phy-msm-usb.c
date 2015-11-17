@@ -99,8 +99,7 @@ module_param(lpm_disconnect_thresh , uint, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(lpm_disconnect_thresh,
 	"Delay before entering LPM on USB disconnect");
 #if defined(CONFIG_ZTEMT_COMM_CHARGE)    \
- || defined(CONFIG_ZTEMT_BQ24296M_CHARGE) \
- || defined(CONFIG_ZTEMT_BQ24296_CHARGE)
+ || defined(CONFIG_ZTEMT_BQ24296M_CHARGE) 
 	static bool floated_charger_enable = 1;
 #else
 	static bool floated_charger_enable;
@@ -1457,8 +1456,6 @@ phcd_retry:
 		motg->ui_enabled = 1;
 		enable_irq(motg->irq);
 	}
-	/* if ID is not ground, that means usb A-plug is not attached, so release wakelock */
-	if (test_bit(ID, &motg->inputs))
 	wake_unlock(&motg->wlock);
 
 	dev_dbg(phy->dev, "LPM caps = %lu flags = %lu\n",
@@ -1491,8 +1488,6 @@ static int msm_otg_resume(struct msm_otg *motg)
 		motg->ui_enabled = 0;
 		disable_irq(motg->irq);
 	}
-	/* hold wakelock only if wakelock is not active, which means wake_lock is not called before */
-	if (!wake_lock_active(&motg->wlock))
 	wake_lock(&motg->wlock);
 
 	/*
@@ -3035,7 +3030,7 @@ static void msm_otg_sm_work(struct work_struct *w)
 					pm_runtime_put_sync(otg->phy->dev);
 					break;
 				case USB_FLOATED_CHARGER:
-					#if (defined CONFIG_ZTEMT_COMM_CHARGE) || (defined CONFIG_ZTEMT_BQ24296M_CHARGE) || (defined CONFIG_ZTEMT_BQ24296_CHARGE)
+					#if (defined CONFIG_ZTEMT_COMM_CHARGE) || (defined CONFIG_ZTEMT_BQ24296M_CHARGE) 
 					msm_otg_notify_charger(motg,500);
 					#else
 					msm_otg_notify_charger(motg,
@@ -4288,9 +4283,6 @@ static int otg_power_property_is_writeable_usb(struct power_supply *psy,
 
 static char *otg_pm_power_supplied_to[] = {
 	"battery",
-   #ifdef CONFIG_ZTEMT_BQ24296_CHARGE
-   "bq24296-battery",
-	 #endif
 };
 
 static enum power_supply_property otg_pm_power_props_usb[] = {

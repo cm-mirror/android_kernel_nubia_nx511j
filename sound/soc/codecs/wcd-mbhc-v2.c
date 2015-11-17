@@ -47,10 +47,10 @@
 #define OCP_ATTEMPT 1
 #define HS_DETECT_PLUG_TIME_MS (3 * 1000)
 #define SPECIAL_HS_DETECT_TIME_MS (2 * 1000)
-#define MBHC_BUTTON_PRESS_THRESHOLD_MIN 250
+#define MBHC_BUTTON_PRESS_THRESHOLD_MIN 180
 #define GND_MIC_SWAP_THRESHOLD 4
 #define WCD_FAKE_REMOVAL_MIN_PERIOD_MS 100
-#define HS_VREF_MIN_VAL 1400
+#define HS_VREF_MIN_VAL 1300
 #define FW_READ_ATTEMPTS 15
 #define FW_READ_TIMEOUT 4000000
 
@@ -449,9 +449,6 @@ static void wcd_mbhc_clr_and_turnon_hph_padac(struct wcd_mbhc *mbhc)
 	bool pa_turned_on = false;
 	u8 wg_time;
 	struct snd_soc_codec *codec = mbhc->codec;
-#ifdef CONFIG_FEATURE_ZTEMT_AUDIO_EXT_PA
-       hphr_channel_on(0);
-#endif //CONFIG_FEATURE_ZTEMT_AUDIO_EXT_PA
 
 	wg_time = snd_soc_read(codec, MSM8X16_WCD_A_ANALOG_RX_HPH_CNP_WG_TIME);
 	wg_time += 1;
@@ -510,6 +507,7 @@ static void wcd_mbhc_set_and_turnoff_hph_padac(struct wcd_mbhc *mbhc)
 
 	wg_time = snd_soc_read(codec, MSM8X16_WCD_A_ANALOG_RX_HPH_CNP_WG_TIME);
 	wg_time += 1;
+
 	/* If headphone PA is on, check if userspace receives
 	* removal event to sync-up PA's state */
 #ifdef CONFIG_FEATURE_ZTEMT_AUDIO_EXT_PA
@@ -535,9 +533,11 @@ static void wcd_mbhc_set_and_turnoff_hph_padac(struct wcd_mbhc *mbhc)
 		pr_debug("%s PA is off\n", __func__);
 	}
 #endif //CONFIG_FEATURE_ZTEMT_AUDIO_EXT_PA
+#ifdef CONFIG_ZTEMT_EURO_HEADSET_SUPPORT
 	snd_soc_update_bits(codec, MSM8X16_WCD_A_ANALOG_RX_HPH_CNP_EN,
 			    0x30, 0x00);
 	usleep_range(wg_time * 1000, wg_time * 1000 + 50);
+#endif
 }
 
 static void wcd_mbhc_calc_impedance(struct wcd_mbhc *mbhc, uint32_t *zl,
@@ -774,7 +774,7 @@ static void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 			 jack_type, mbhc->hph_status);
 		wcd_mbhc_jack_report(mbhc, &mbhc->headset_jack,
 				mbhc->hph_status, WCD_MBHC_JACK_MASK);
-#ifdef CONFIG_FEATURE_ZTEMT_AUDIO_EXT_PA
+#if (defined(CONFIG_FEATURE_ZTEMT_AUDIO_EXT_PA) && !defined(CONFIG_SND_SOC_AK4375))
 		//wcd_mbhc_set_and_turnoff_hph_padac(mbhc);
 		//annotate turn off operation, in order to resolve no sound problem while unplug headset in voice speaker mode
 #else
@@ -1169,7 +1169,18 @@ static void wcd_correct_swch_plug(struct work_struct *work)
 			pr_debug("%s: Special headset found %d\n",
 					__func__, plug_type);
 			plug_type = MBHC_PLUG_TYPE_HEADSET;
-			goto report;
+			//goto report;
+		//add by lihongda
+		if ((mbhc->is_hs_recording || det_extn_cable_en))
+			wcd_enable_curr_micbias(mbhc, WCD_MBHC_EN_MB);
+		else if ((test_bit(WCD_MBHC_EVENT_PA_HPHL, &mbhc->event_state))
+				|| (test_bit(WCD_MBHC_EVENT_PA_HPHR,
+					  &mbhc->event_state)))
+			wcd_enable_curr_micbias(mbhc, WCD_MBHC_EN_PULLUP);
+		else
+			wcd_enable_curr_micbias(mbhc, WCD_MBHC_EN_CS);
+		goto exit;
+		//add by lihongda end
 		}
 	}
 
@@ -1274,7 +1285,7 @@ static void wcd_mbhc_detect_plug_type(struct wcd_mbhc *mbhc)
 		if (!result1 && !(result2 & 0x01))
 			plug_type = MBHC_PLUG_TYPE_HEADSET;
 		else if (!result1 && (result2 & 0x01))
-			plug_type = MBHC_PLUG_TYPE_HIGH_HPH;
+			plug_type = MBHC_PLUG_TYPE_HEADSET;//origin is MBHC_PLUG_TYPE_HIGH_HPH
 		else {
 			plug_type = MBHC_PLUG_TYPE_INVALID;
 			goto exit;
@@ -1328,11 +1339,11 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 
 	if ((mbhc->current_plug == MBHC_PLUG_TYPE_NONE) &&
 	    detection_type) {
-#ifdef CONFIG_FEATURE_ZTEMT_AUDIO_EXT_PA
+#if (defined(CONFIG_FEATURE_ZTEMT_AUDIO_EXT_PA) && !defined(CONFIG_SND_SOC_AK4375))
 		wcd_mbhc_set_and_turnoff_hph_padac(mbhc);
 		//turn off the hph pa while insert headset irq, in order to fix the headset type detect problem
 		//while headset type detect, the hph pa must be turned off
-		hphr_channel_on(1);
+		//hphr_channel_on(1);
 		//enable the HPHR switch, ensure the headset type detect normal
 #endif //CONFIG_FEATURE_ZTEMT_AUDIO_EXT_PA
 		/* Make sure MASTER_BIAS_CTL is enabled */
@@ -1470,10 +1481,10 @@ static int wcd_mbhc_get_button_mask(u16 btn)
 		mask = SND_JACK_BTN_2;
 		break;
 	case 7:
-		mask = SND_JACK_BTN_3;
+		mask = SND_JACK_BTN_2;
 		break;
 	case 15:
-		mask = SND_JACK_BTN_4;
+		mask = SND_JACK_BTN_2;
 		break;
 	default:
 		break;
@@ -1724,6 +1735,7 @@ irqreturn_t wcd_mbhc_btn_press_handler(int irq, void *data)
 	mbhc->btn_press_intr = true;
 
 	msec_val = jiffies_to_msecs(jiffies - mbhc->jiffies_atreport);
+    mbhc->jiffies_atreport = jiffies;
 	pr_debug("%s: msec_val = %ld\n", __func__, msec_val);
 	if (msec_val < MBHC_BUTTON_PRESS_THRESHOLD_MIN) {
 		pr_debug("%s: Too short, ignore button press\n", __func__);
@@ -2126,19 +2138,40 @@ int wcd_mbhc_init(struct wcd_mbhc *mbhc, struct snd_soc_codec *codec,
 		}
 
 		ret = snd_jack_set_key(mbhc->button_jack.jack,
-				       SND_JACK_BTN_0,
-				       KEY_MEDIA);
+				SND_JACK_BTN_0,
+				KEY_MEDIA);
 		if (ret) {
 			pr_err("%s: Failed to set code for btn-0\n",
-				__func__);
+					__func__);
 			return ret;
 		}
+		ret = snd_jack_set_key(mbhc->button_jack.jack,
+				SND_JACK_BTN_1,
+				KEY_VOLUMEUP);
+		if (ret) {
+			pr_err("%s: Failed to set code for btn-1\n",
+					__func__);
+			return ret;
+		}
+		ret = snd_jack_set_key(mbhc->button_jack.jack,
+				SND_JACK_BTN_2,
+				KEY_VOLUMEDOWN);
+		if (ret) {
+			pr_err("%s: Failed to set code for btn-2\n",
+					__func__);
+			return ret;
+		}
+
 
 		INIT_DELAYED_WORK(&mbhc->mbhc_firmware_dwork,
 				  wcd_mbhc_fw_read);
 		INIT_DELAYED_WORK(&mbhc->mbhc_btn_dwork, wcd_btn_lpress_fn);
 	}
-
+//add by lihongda to change the max value of ocp current
+		snd_soc_update_bits(codec,
+				MSM8X16_WCD_A_ANALOG_RX_COM_OCP_CTL,
+				0xd0, 0x70);
+//add by lihongda end
 	/* Register event notifier */
 	mbhc->nblock.notifier_call = wcd_event_notify;
 	ret = msm8x16_register_notifier(codec, &mbhc->nblock);

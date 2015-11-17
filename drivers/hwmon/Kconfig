@@ -139,7 +139,6 @@ config ZTEMT_LIQUID_LED_AW2013
 	depends on I2C
 	help
 	  if you say use aw2013, select it.
-
 config SENSORS_ADM1021
 	tristate "Analog Devices ADM1021 and compatibles"
 	depends on I2C

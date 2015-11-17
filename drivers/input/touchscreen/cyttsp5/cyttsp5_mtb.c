@@ -60,11 +60,19 @@ static void cyttsp5_report_slot_liftoff(struct cyttsp5_mt_data *md,
 	if (md->num_prv_rec == 0)
 		return;
 
+#ifdef CONFIG_NUBIA_CYTTSP5_IGNORE_ZONE_ON
+	for (t = 0; t < max_slots; t++) {
+		input_mt_slot(md->current_input, t);
+		input_mt_report_slot_state(md->current_input,
+			MT_TOOL_FINGER, false);
+	}
+#else
 	for (t = 0; t < max_slots; t++) {
 		input_mt_slot(md->input, t);
 		input_mt_report_slot_state(md->input,
 			MT_TOOL_FINGER, false);
 	}
+#endif
 }
 
 static int cyttsp5_input_register_device(struct input_dev *input, int max_slots)

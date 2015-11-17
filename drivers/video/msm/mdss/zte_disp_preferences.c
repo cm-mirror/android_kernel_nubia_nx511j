@@ -17,13 +17,14 @@
 #include "zte_disp_preferences-sharp-nt35595-1080p-5p0.h"
 #include "zte_disp_preferences-tianma-hx8394d-720p-5p5.h"
 #include "zte_disp_preferences-oufei-hx8394d-720p-5p5.h"
+#include "zte_disp_preferences-samsung-s6e3fa3x01-1080p-5p2.h"
 #include "zte_lcd_dsi.h"
 
 unsigned int zte_intensity_value;
 static int boot_flag = 0;
 struct mdss_dsi_ctrl_pdata *zte_mdss_dsi_ctrl;
-void zte_send_cmd(struct dsi_cmd_desc *cmds, int len);
 
+void zte_send_cmd(struct dsi_cmd_desc *cmds, int len);
 
 
 struct mdp_pcc_cfg_data zte_pcc_cfg_debug = {
@@ -171,7 +172,25 @@ void zte_mipi_colortmp(void)
 			zte_mdss_pcc_config(&oufei_hx8394d_720p_5p5_pcc_cfg_warm);
 			break;
 		}
-	} 
+	}
+	else if (zte_mdss_dsi_ctrl->panel_name &&
+		(!strcmp(zte_mdss_dsi_ctrl->panel_name, "sumsang s6e3fa3x01 1080p 5p2 command mode dsi panel"))) {
+		pr_err("lcd::%s sumsang s6e3fa3x01 1080p 5p2 command mode dsi panel\n", __func__);
+		switch (value) {
+			case INTENSITY_NORMAL:
+				zte_mdss_pcc_config(&samsung_s6e3fa3x01_1080p_5p2_pcc_cfg_warm);
+				break;
+			case INTENSITY_01:
+				zte_mdss_pcc_config(&samsung_s6e3fa3x01_1080p_5p2_pcc_cfg_natural);
+				break;
+			case INTENSITY_02:
+				zte_mdss_pcc_config(&samsung_s6e3fa3x01_1080p_5p2_pcc_cfg_cool);
+				break;
+			default:
+				zte_mdss_pcc_config(&samsung_s6e3fa3x01_1080p_5p2_pcc_cfg_warm);
+				break;
+		}
+	}
     else
     {
 		pr_err("lcd::%s thers is no panel named %s\n", __func__, zte_mdss_dsi_ctrl->panel_name);

@@ -25,6 +25,10 @@ config ZTEMT_GT1X_TOUCHSCREEN_DRIVER
 
 	  If unsure, say N.
 
+config NUBIA_GT1X_IGNORE_ZONE_ON
+     bool "gt1x ignore zone on"
+     default n
+
 choice
 	prompt "ztemt gt1x touchscreen sensor id"
 

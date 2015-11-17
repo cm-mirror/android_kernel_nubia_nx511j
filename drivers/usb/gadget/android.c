@@ -2444,7 +2444,6 @@ static int mass_storage_function_init(struct android_usb_function *f,
 		config->fsg.luns[n].removable = 1;
 		config->fsg.nluns++;
 	}
-
 #ifdef CONFIG_ZTEMT_USB
 	config->fsg.vendor_name = "nubia";
 	config->fsg.product_name = "Android";

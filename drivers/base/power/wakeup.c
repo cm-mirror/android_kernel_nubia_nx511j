@@ -26,6 +26,7 @@ bool events_check_enabled __read_mostly;
 #ifdef CONFIG_ZTEMT_POWER_DEBUG
 extern bool wakeup_wake_lock_debug;
 #endif
+
 /*
  * Combined counters of registered wakeup events and wakeup events in progress.
  * They need to be modified together atomically, so it's better to use one
