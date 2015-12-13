@@ -1233,12 +1233,11 @@ struct task_struct {
 				 * execve */
 	unsigned in_iowait:1;
 
-	/* task may not gain privileges */
-	unsigned no_new_privs:1;
-
 	/* Revert to default priority/policy when forking */
 	unsigned sched_reset_on_fork:1;
 	unsigned sched_contributes_to_load:1;
+
+	unsigned long atomic_flags; /* Flags needing atomic access. */
 
 	pid_t pid;
 	pid_t tgid;
@@ -1821,6 +1820,19 @@ static inline void memalloc_noio_restore(unsigned int flags)
 	current->flags = (current->flags & ~PF_MEMALLOC_NOIO) | flags;
 }
 
+/* Per-process atomic flags. */
+#define PFA_NO_NEW_PRIVS 0x00000001	/* May not gain new privileges. */
+
+static inline bool task_no_new_privs(struct task_struct *p)
+{
+	return test_bit(PFA_NO_NEW_PRIVS, &p->atomic_flags);
+}
+
+static inline void task_set_no_new_privs(struct task_struct *p)
+{
+	set_bit(PFA_NO_NEW_PRIVS, &p->atomic_flags);
+}
+
 /*
  * task->jobctl flags
  */
@@ -1911,16 +1923,7 @@ sched_set_cpu_cstate(int cpu, int cstate, int wakeup_energy, int wakeup_latency)
 #endif
 
 #ifdef CONFIG_SCHED_HMP
-
 extern int sched_set_boost(int enable);
-extern int sched_set_cpu_mostly_idle_load(int cpu, int mostly_idle_pct);
-extern int sched_get_cpu_mostly_idle_load(int cpu);
-extern int sched_set_cpu_mostly_idle_nr_run(int cpu, int nr_run);
-extern int sched_get_cpu_mostly_idle_nr_run(int cpu);
-extern int
-sched_set_cpu_mostly_idle_freq(int cpu, unsigned int mostly_idle_freq);
-extern unsigned int sched_get_cpu_mostly_idle_freq(int cpu);
-
 #else
 static inline int sched_set_boost(int enable)
 {
