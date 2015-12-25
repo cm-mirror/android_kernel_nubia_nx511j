@@ -107,7 +107,6 @@ void mdss_dsi_ctrl_init(struct device *ctrl_dev,
 	mutex_init(&ctrl->mutex);
 	mutex_init(&ctrl->cmd_mutex);
 	mutex_init(&ctrl->clk_lane_mutex);
-	mutex_init(&ctrl->cmdlist_mutex);
 	mdss_dsi_buf_alloc(ctrl_dev, &ctrl->tx_buf, SZ_4K);
 	mdss_dsi_buf_alloc(ctrl_dev, &ctrl->rx_buf, SZ_4K);
 	mdss_dsi_buf_alloc(ctrl_dev, &ctrl->status_buf, SZ_4K);
@@ -143,7 +142,9 @@ void mdss_dsi_clk_req(struct mdss_dsi_ctrl_pdata *ctrl, int enable)
 	if (enable == 0) {
 		/* need wait before disable */
 		mutex_lock(&ctrl->cmd_mutex);
-		mdss_dsi_cmd_mdp_busy(ctrl);
+		if (mdss_dsi_cmd_mdp_busy(ctrl))
+			pr_warn("%s: wait for mdp to be idle timedout\n",
+				__func__);
 		mutex_unlock(&ctrl->cmd_mutex);
 	}
 
@@ -504,7 +505,8 @@ static void mdss_dsi_wait_clk_lane_to_stop(struct mdss_dsi_ctrl_pdata *ctrl)
 
 	if (mdss_dsi_poll_clk_lane(ctrl) == false)
 		pr_err("%s: clk lane recovery failed\n", __func__);
-
+	else
+		ctrl->clk_lane_cnt = 0;
 	/* clear clk lane tx stop -- bit 20 */
 	mdss_dsi_cfg_lane_ctrl(ctrl, BIT(20), 0);
 }
@@ -518,13 +520,12 @@ static void mdss_dsi_stop_hs_clk_lane(struct mdss_dsi_ctrl_pdata *ctrl);
  */
 static void mdss_dsi_start_hs_clk_lane(struct mdss_dsi_ctrl_pdata *ctrl)
 {
-
 	/* make sure clk lane is stopped */
 	mdss_dsi_stop_hs_clk_lane(ctrl);
 
 	mutex_lock(&ctrl->clk_lane_mutex);
 	MDSS_XLOG(ctrl->ndx, ctrl->clk_lane_cnt, current->pid,
-	XLOG_FUNC_ENTRY);
+			XLOG_FUNC_ENTRY);
 	mdss_dsi_clk_ctrl(ctrl, DSI_ALL_CLKS, 1);
 	if (ctrl->clk_lane_cnt) {
 		pr_err("%s: ndx=%d do-wait, cnt=%d\n",
@@ -539,7 +540,7 @@ static void mdss_dsi_start_hs_clk_lane(struct mdss_dsi_ctrl_pdata *ctrl)
 				ctrl->ndx, ctrl->clk_lane_cnt);
 	mdss_dsi_clk_ctrl(ctrl, DSI_ALL_CLKS, 0);
 	MDSS_XLOG(ctrl->ndx, ctrl->clk_lane_cnt,
-	current->pid, XLOG_FUNC_EXIT);
+			current->pid, XLOG_FUNC_EXIT);
 	mutex_unlock(&ctrl->clk_lane_mutex);
 }
 
@@ -559,7 +560,7 @@ static void mdss_dsi_stop_hs_clk_lane(struct mdss_dsi_ctrl_pdata *ctrl)
 
 	mutex_lock(&ctrl->clk_lane_mutex);
 	MDSS_XLOG(ctrl->ndx, ctrl->clk_lane_cnt, current->pid,
-	XLOG_FUNC_ENTRY);
+			XLOG_FUNC_ENTRY);
 	if (ctrl->clk_lane_cnt == 0)	/* stopped already */
 		goto release;
 
@@ -595,7 +596,7 @@ release:
 			ctrl->ndx, ctrl->clk_lane_cnt);
 
 	MDSS_XLOG(ctrl->ndx, ctrl->clk_lane_cnt,
-	current->pid, XLOG_FUNC_EXIT);
+			current->pid, XLOG_FUNC_EXIT);
 	mutex_unlock(&ctrl->clk_lane_mutex);
 }
 
@@ -1027,9 +1028,10 @@ static void mdss_dsi_mode_setup(struct mdss_panel_data *pdata)
 	struct mipi_panel_info *mipi;
 	u32 clk_rate;
 	u32 hbp, hfp, vbp, vfp, hspw, vspw, width, height;
-	u32 ystride, bpp, data, dst_bpp;
+	u32 ystride, bpp, dst_bpp;
+	u32 stream_ctrl, stream_total;
 	u32 dummy_xres = 0, dummy_yres = 0;
-	u32 hsync_period, vsync_period, reg = 0;
+	u32 hsync_period, vsync_period;
 
 	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 				panel_data);
@@ -1091,22 +1093,25 @@ static void mdss_dsi_mode_setup(struct mdss_panel_data *pdata)
 
 		ystride = width * bpp + 1;
 
-		/* Enable frame transfer in burst mode */
-		if (ctrl_pdata->hw_rev >= MDSS_DSI_HW_REV_103) {
-			reg = MIPI_INP(ctrl_pdata->ctrl_base + 0x1b8);
-			reg = reg | BIT(16);
-			MIPI_OUTP((ctrl_pdata->ctrl_base + 0x1b8), reg);
-			ctrl_pdata->burst_mode_enabled = 1;
+		if (pinfo->partial_update_enabled &&
+			mdss_dsi_is_panel_on(pdata) && pinfo->roi.w &&
+			pinfo->roi.h) {
+			stream_ctrl = (((pinfo->roi.w * bpp) + 1) << 16) |
+					(mipi->vc << 8) | DTYPE_DCS_LWRITE;
+			stream_total = pinfo->roi.h << 16 | pinfo->roi.w;
+		} else {
+			stream_ctrl = (ystride << 16) | (mipi->vc << 8) |
+					DTYPE_DCS_LWRITE;
+			stream_total = height << 16 | width;
 		}
+
 		/* DSI_COMMAND_MODE_MDP_STREAM_CTRL */
-		data = (ystride << 16) | (mipi->vc << 8) | DTYPE_DCS_LWRITE;
-		MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x60, data);
-		MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x58, data);
+		MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x60, stream_ctrl);
+		MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x58, stream_ctrl);
 
 		/* DSI_COMMAND_MODE_MDP_STREAM_TOTAL */
-		data = height << 16 | width;
-		MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x64, data);
-		MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x5C, data);
+		MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x64, stream_total);
+		MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x5C, stream_total);
 	}
 }
 
@@ -1656,6 +1661,25 @@ static int mdss_dsi_cmd_dma_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 
 	ret = wait_for_completion_timeout(&ctrl->dma_comp,
 				msecs_to_jiffies(DMA_TX_TIMEOUT));
+
+	if (ret <= 0) {
+		u32 reg_val, status, mask;
+
+		reg_val = MIPI_INP(ctrl->ctrl_base + 0x0110);/* DSI_INTR_CTRL */
+		mask = reg_val & DSI_INTR_CMD_DMA_DONE_MASK;
+		status = mask & reg_val;
+		if (status) {
+			pr_warn("dma tx done but irq not triggered\n");
+			reg_val &= DSI_INTR_MASK_ALL;
+			/* clear CMD DMA isr only */
+			reg_val |= DSI_INTR_CMD_DMA_DONE;
+			MIPI_OUTP(ctrl->ctrl_base + 0x0110, reg_val);
+			mdss_dsi_disable_irq_nosync(ctrl, DSI_MDP_TERM);
+			complete(&ctrl->dma_comp);
+			ret = 1;
+		}
+	}
+
 	if (ret == 0)
 		ret = -ETIMEDOUT;
 	else
@@ -1877,12 +1901,11 @@ static int mdss_dsi_mdp_busy_tout_check(struct mdss_dsi_ctrl_pdata *ctrl)
 	 * two possible scenario:
 	 * 1) DSI_INTR_CMD_MDP_DONE set but isr not fired
 	 * 2) DSI_INTR_CMD_MDP_DONE set and cleared (isr fired)
-	 * but event_thread not wakeup
+	 *    but event_thread not wakeup
 	 */
 	mdss_dsi_clk_ctrl(ctrl, DSI_ALL_CLKS, 1);
 	spin_lock_irqsave(&ctrl->mdp_lock, flag);
 
-	pr_err("%s: +\n", __func__);
 	isr = MIPI_INP(ctrl->ctrl_base + 0x0110);
 	if (isr & DSI_INTR_CMD_MDP_DONE) {
 		WARN(1, "INTR_CMD_MDP_DONE set but isr not fired\n");
@@ -1891,9 +1914,8 @@ static int mdss_dsi_mdp_busy_tout_check(struct mdss_dsi_ctrl_pdata *ctrl)
 		MIPI_OUTP(ctrl->ctrl_base + 0x0110, isr);
 		mdss_dsi_disable_irq_nosync(ctrl, DSI_MDP_TERM);
 		ctrl->mdp_busy = false;
-		complete_all(&ctrl->mdp_comp);
 		if (ctrl->cmd_clk_ln_recovery_en &&
-				ctrl->panel_mode == DSI_CMD_MODE) {
+			ctrl->panel_mode == DSI_CMD_MODE) {
 			/* has hs_lane_recovery do the work */
 			stop_hs_clk = true;
 		}
@@ -1908,18 +1930,18 @@ static int mdss_dsi_mdp_busy_tout_check(struct mdss_dsi_ctrl_pdata *ctrl)
 	complete_all(&ctrl->mdp_comp);
 
 	mdss_dsi_clk_ctrl(ctrl, DSI_ALL_CLKS, 0);
-	pr_err("%s: -\n", __func__);
+
 	return tout;
 }
 
-void mdss_dsi_cmd_mdp_busy(struct mdss_dsi_ctrl_pdata *ctrl)
+int mdss_dsi_cmd_mdp_busy(struct mdss_dsi_ctrl_pdata *ctrl)
 {
 	unsigned long flags;
 	int need_wait = 0;
 	int rc = 1;
 
-	pr_debug("%s: start pid=%d\n",
-				__func__, current->pid);
+	pr_debug("%s: %d start busy=%d pid=%d\n", __func__,
+			ctrl->ndx, ctrl->mdp_busy, current->pid);
 
 	MDSS_XLOG(ctrl->ndx, ctrl->mdp_busy, current->pid, XLOG_FUNC_ENTRY);
 	spin_lock_irqsave(&ctrl->mdp_lock, flags);
@@ -1929,8 +1951,6 @@ void mdss_dsi_cmd_mdp_busy(struct mdss_dsi_ctrl_pdata *ctrl)
 
 	if (need_wait) {
 		/* wait until DMA finishes the current job */
-		pr_debug("%s: pending pid=%d\n",
-				__func__, current->pid);
 		rc = wait_for_completion_timeout(&ctrl->mdp_comp,
 					msecs_to_jiffies(DMA_TX_TIMEOUT));
 		spin_lock_irqsave(&ctrl->mdp_lock, flags);
@@ -1940,13 +1960,16 @@ void mdss_dsi_cmd_mdp_busy(struct mdss_dsi_ctrl_pdata *ctrl)
 		if (!rc) {
 			if (mdss_dsi_mdp_busy_tout_check(ctrl)) {
 				pr_err("%s: timeout error\n", __func__);
-				MDSS_XLOG_TOUT_HANDLER("mdp", "dsi0_ctrl",
-				"dsi0_phy", "dsi1_ctrl", "dsi1_phy", "panic");
+				MDSS_XLOG_TOUT_HANDLER("mdp", "dsi0", "dsi1",
+						"edp", "hdmi", "panic");
 			}
 		}
 	}
-	pr_debug("%s: done pid=%d\n", __func__, current->pid);
+
+	pr_debug("%s: %d done pid=%d\n", __func__, ctrl->ndx, current->pid);
 	MDSS_XLOG(ctrl->ndx, ctrl->mdp_busy, current->pid, XLOG_FUNC_EXIT);
+
+	return !rc ? -ETIMEDOUT : 0;
 }
 
 int mdss_dsi_cmdlist_tx(struct mdss_dsi_ctrl_pdata *ctrl,
@@ -1979,6 +2002,7 @@ int mdss_dsi_cmdlist_rx(struct mdss_dsi_ctrl_pdata *ctrl,
 		rp = &ctrl->rx_buf;
 		len = mdss_dsi_cmds_rx(ctrl, req->cmds, req->rlen);
 		memcpy(req->rbuf, rp->data, rp->len);
+		ctrl->rx_len = len;
 	} else {
 		pr_err("%s: No rx buffer provided\n", __func__);
 	}
@@ -1996,35 +2020,31 @@ int mdss_dsi_cmdlist_commit(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp)
 	struct mdss_rect *roi = NULL;
 	int ret = -EINVAL;
 	int rc = 0;
-	bool cmd_mutex_acquired = false;
 
 	if (mdss_get_sd_client_cnt())
 		return -EPERM;
 
 	if (from_mdp) {	/* from mdp kickoff */
-		if (!ctrl->burst_mode_enabled) {
-			mutex_lock(&ctrl->cmd_mutex);
-			cmd_mutex_acquired = true;
-		}
+		mutex_lock(&ctrl->cmd_mutex);
 		pinfo = &ctrl->panel_data.panel_info;
 		if (pinfo->partial_update_enabled)
 			roi = &pinfo->roi;
 	}
 
 	req = mdss_dsi_cmdlist_get(ctrl);
-	if (req && from_mdp && ctrl->burst_mode_enabled) {
-		mutex_lock(&ctrl->cmd_mutex);
-		cmd_mutex_acquired = true;
-	}
 
 	MDSS_XLOG(ctrl->ndx, from_mdp, ctrl->mdp_busy, current->pid,
 							XLOG_FUNC_ENTRY);
 
-	if (!ctrl->burst_mode_enabled || from_mdp) {
-		/* make sure dsi_cmd_mdp is idle when
-		 * burst mode is not enabled
-		*/
-		mdss_dsi_cmd_mdp_busy(ctrl);
+	if (req == NULL)
+		goto need_lock;
+	/* make sure dsi_cmd_mdp is idle */
+	rc = mdss_dsi_cmd_mdp_busy(ctrl);
+	if (rc) {
+		pr_err("%s: mdp busy timeout\n", __func__);
+		if (from_mdp)
+			mutex_unlock(&ctrl->cmd_mutex);
+		return rc;
 	}
 
 	pr_debug("%s: ctrl=%d from_mdp=%d pid=%d\n", __func__,
@@ -2034,10 +2054,8 @@ int mdss_dsi_cmdlist_commit(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp)
 		/*
 		 * when partial update enabled, the roi of pinfo
 		 * is updated before mdp kickoff. Either width or
-		 * height of roi is 0, then it is false kickoff so
-		 * no mdp_busy flag set needed.
-		 * when partial update disabled, mdp_busy flag
-		 * alway set.
+		 * height of roi is non zero, then really kickoff
+		 * will followed.
 		 */
 		if (!roi || (roi->w != 0 || roi->h != 0)) {
 			if (ctrl->cmd_clk_ln_recovery_en &&
@@ -2047,13 +2065,9 @@ int mdss_dsi_cmdlist_commit(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp)
 	} else {	/* from dcs send */
 		if (ctrl->cmd_clk_ln_recovery_en &&
 				ctrl->panel_mode == DSI_CMD_MODE &&
-				(req && (req->flags & CMD_REQ_HS_MODE)))
+				(req->flags & CMD_REQ_HS_MODE))
 			mdss_dsi_cmd_start_hs_clk_lane(ctrl);
 	}
-
-
-	if (req == NULL)
-		goto need_lock;
 
 	MDSS_XLOG(ctrl->ndx, req->flags, req->cmds_cnt, from_mdp, current->pid);
 
@@ -2116,8 +2130,8 @@ need_lock:
 		 */
 		if (!roi || (roi->w != 0 || roi->h != 0))
 			mdss_dsi_cmd_mdp_start(ctrl);
-		if (cmd_mutex_acquired)
-			mutex_unlock(&ctrl->cmd_mutex);
+
+		mutex_unlock(&ctrl->cmd_mutex);
 	} else {	/* from dcs send */
 		if (ctrl->cmd_clk_ln_recovery_en &&
 				ctrl->panel_mode == DSI_CMD_MODE &&
@@ -2218,6 +2232,7 @@ static int dsi_event_thread(void *data)
 			pr_debug("%s: lane_status: 0x%x\n",
 				       __func__, ln_status);
 			if (ctrl->recovery
+					&& (ctrl->hw_rev != MDSS_DSI_HW_REV_103)
 					&& !(force_clk_ln_hs)
 					&& (ln_status
 						& DSI_DATA_LANES_STOP_STATE)

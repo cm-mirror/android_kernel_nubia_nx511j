@@ -30,6 +30,7 @@ mdss-dsi-objs += mdss_dsi_panel.o
 mdss-dsi-objs += msm_mdss_io_8974.o
 mdss-dsi-objs += nubia_lcd_avdd.o
 obj-$(CONFIG_FB_MSM_MDSS) += mdss-dsi.o
+obj-$(CONFIG_FB_MSM_MDSS) += mdss_panel.o
 obj-$(CONFIG_ZTEMT_LCD_DISP_PREFERENCES) += zte_disp_preferences.o
 obj-$(CONFIG_FB_MSM_MDSS_EDP_PANEL) += mdss_edp.o
 obj-$(CONFIG_FB_MSM_MDSS_EDP_PANEL) += mdss_edp_aux.o

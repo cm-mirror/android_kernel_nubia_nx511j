@@ -37,7 +37,8 @@ extern struct mdss_dsi_ctrl_pdata *zte_mdss_dsi_ctrl;
 #define NT35596_BUF_5_STATUS 0x80
 #define NT35596_MAX_ERR_CNT 2
 
-#define MIN_REFRESH_RATE 30
+#define MIN_REFRESH_RATE 48
+#define DEFAULT_MDP_TRANSFER_TIME 14000
 
 DEFINE_LED_TRIGGER(bl_led_trigger);
 
@@ -64,7 +65,7 @@ static void mdss_dsi_panel_bklt_pwm(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 		pr_err("%s: no PWM\n", __func__);
 		return;
 	}
-	pr_err("[lcd]%s: level=%d\n", __func__, level);
+
 	if (level == 0) {
 		if (ctrl->pwm_enabled) {
 			ret = pwm_config_us(ctrl->pwm_bl, level,
@@ -186,6 +187,7 @@ static struct dsi_cmd_desc backlight_cmd = {
 	led_pwm1
 };
 
+#ifdef CONFIG_ZTEMT_HW_VERSION_NX511J
 static char dimming[2] = {0x53, 0x0};	/* DTYPE_DCS_WRITE1 */
 static struct dsi_cmd_desc dimming_cmd = {
 	{DTYPE_DCS_WRITE1, 1, 0, 0, 1, sizeof(dimming)},
@@ -220,20 +222,22 @@ static void mdss_dsi_panel_dimming_enable(struct mdss_dsi_ctrl_pdata *ctrl, bool
 
 	pr_debug("[lcd]%s: %d: %s dimming \n", __func__, __LINE__, enable ? "enable" : "disable");
 }
-
+#endif
 
 static void mdss_dsi_panel_bklt_dcs(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 {
 	struct dcs_cmd_req cmdreq;
 	struct mdss_panel_info *pinfo;
+#ifdef CONFIG_ZTEMT_HW_VERSION_NX511J
 	static int last_level = -1;
-
+#endif
 	pinfo = &(ctrl->panel_data.panel_info);
 	if (pinfo->dcs_cmd_by_left) {
 		if (ctrl->ndx != DSI_CTRL_LEFT)
 			return;
 	}
 
+#ifdef CONFIG_ZTEMT_HW_VERSION_NX511J
 	if (pinfo->disable_dimming_when_suspend) {
 		if (level == 0)
 			mdss_dsi_panel_dimming_enable(ctrl, false);
@@ -244,8 +248,8 @@ static void mdss_dsi_panel_bklt_dcs(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 			mdss_dsi_panel_dimming_enable(ctrl, false);
 		}
 	}
-
 	pr_err("%s: level=%d\n", __func__, level);
+#endif
 
 	led_pwm1[1] = (unsigned char)level;
 
@@ -258,6 +262,7 @@ static void mdss_dsi_panel_bklt_dcs(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 
 	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
 
+#ifdef CONFIG_ZTEMT_HW_VERSION_NX511J
 	if (pinfo->disable_dimming_when_resume) {
 		if (last_level == 0 && level < 30) {
 			msleep(20);
@@ -265,6 +270,7 @@ static void mdss_dsi_panel_bklt_dcs(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 		}
 	}
 	last_level = level;
+#endif
 }
 
 static int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
@@ -707,6 +713,42 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 
 end:
 	pinfo->blank_state = MDSS_PANEL_BLANK_UNBLANK;
+	pr_debug("%s:-\n", __func__);
+	return 0;
+}
+
+static int mdss_dsi_post_panel_on(struct mdss_panel_data *pdata)
+{
+	struct mdss_dsi_ctrl_pdata *ctrl = NULL;
+	struct mdss_panel_info *pinfo;
+	struct dsi_panel_cmds *on_cmds;
+
+	if (pdata == NULL) {
+		pr_err("%s: Invalid input data\n", __func__);
+		return -EINVAL;
+	}
+
+	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
+				panel_data);
+
+	pr_debug("%s: ctrl=%p ndx=%d\n", __func__, ctrl, ctrl->ndx);
+
+	pinfo = &pdata->panel_info;
+	if (pinfo->dcs_cmd_by_left) {
+		if (ctrl->ndx != DSI_CTRL_LEFT)
+			goto end;
+	}
+
+	on_cmds = &ctrl->post_panel_on_cmds;
+
+	pr_debug("%s: ctrl=%p cmd_cnt=%d\n", __func__, ctrl, on_cmds->cmd_cnt);
+
+	if (on_cmds->cmd_cnt) {
+		msleep(50);	/* wait for 3 vsync passed */
+		mdss_dsi_panel_cmds_send(ctrl, on_cmds);
+	}
+
+end:
 	pr_debug("%s:-\n", __func__);
 	return 0;
 }
@@ -1709,6 +1751,8 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	pinfo->mipi.frame_rate = (!rc ? tmp : 60);
 	rc = of_property_read_u32(np, "qcom,mdss-dsi-panel-clockrate", &tmp);
 	pinfo->clk_rate = (!rc ? tmp : 0);
+	rc = of_property_read_u32(np, "qcom,mdss-mdp-transfer-time-us", &tmp);
+	pinfo->mdp_transfer_time_us = (!rc ? tmp : DEFAULT_MDP_TRANSFER_TIME);
 	data = of_get_property(np, "qcom,mdss-dsi-panel-timings", &len);
 	if ((!data) || (len != 12)) {
 		pr_err("%s:%d, Unable to read Phy timing settings",
@@ -1722,6 +1766,9 @@ static int mdss_panel_parse_dt(struct device_node *np,
 					"qcom,mdss-dsi-lp11-init");
 	rc = of_property_read_u32(np, "qcom,mdss-dsi-init-delay-us", &tmp);
 	pinfo->mipi.init_delay = (!rc ? tmp : 0);
+
+	rc = of_property_read_u32(np, "qcom,mdss-dsi-post-init-delay", &tmp);
+	pinfo->mipi.post_init_delay = (!rc ? tmp : 0);
 
 	mdss_dsi_parse_roi_alignment(np, pinfo);
 
@@ -1742,6 +1789,9 @@ static int mdss_panel_parse_dt(struct device_node *np,
 
 	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->on_cmds,
 		"qcom,mdss-dsi-on-command", "qcom,mdss-dsi-on-command-state");
+
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->post_panel_on_cmds,
+		"qcom,mdss-dsi-post-panel-on-command", NULL);
 
 	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->off_cmds,
 		"qcom,mdss-dsi-off-command", "qcom,mdss-dsi-off-command-state");
@@ -1777,8 +1827,12 @@ static int mdss_panel_parse_dt(struct device_node *np,
 				pr_err("TE-ESD not valid for video mode\n");
 		}
 	}
+
 	pinfo->mipi.force_clk_lane_hs = of_property_read_bool(np,
 		"qcom,mdss-dsi-force-clock-lane-hs");
+
+	pinfo->mipi.always_on = of_property_read_bool(np,
+		"qcom,mdss-dsi-always-on");
 
 	rc = mdss_dsi_parse_panel_features(np, ctrl_pdata);
 	if (rc) {
@@ -1844,6 +1898,7 @@ int mdss_dsi_panel_init(struct device_node *node,
 	pinfo->esd_rdy = false;
 
 	ctrl_pdata->on = mdss_dsi_panel_on;
+	ctrl_pdata->post_panel_on = mdss_dsi_post_panel_on;
 	ctrl_pdata->off = mdss_dsi_panel_off;
 	ctrl_pdata->low_power_config = mdss_dsi_panel_low_power_config;
 	ctrl_pdata->panel_data.set_backlight = mdss_dsi_panel_bl_ctrl;

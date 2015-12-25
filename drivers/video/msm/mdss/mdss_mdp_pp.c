@@ -2228,12 +2228,16 @@ static int pp_ad_calc_bl(struct msm_fb_data_type *mfd, int bl_in, int *bl_out,
 	}
 	*bl_out = temp;
 
+	if (!mfd->ad_bl_level)
+		mfd->ad_bl_level = bl_in;
+
 	if (ad_bl_out != mfd->ad_bl_level) {
 		mfd->ad_bl_level = ad_bl_out;
 		*bl_out_notify = true;
 	}
 
-	pp_ad_invalidate_input(mfd);
+	if (*bl_out_notify)
+		pp_ad_invalidate_input(mfd);
 	mutex_unlock(&ad->lock);
 	return 0;
 }
@@ -4689,7 +4693,6 @@ int mdss_mdp_ad_input(struct msm_fb_data_type *mfd,
 			mdss_fb_set_backlight(mfd, bl);
 			mutex_unlock(&mfd->bl_lock);
 			mutex_lock(&ad->lock);
-			mfd->calib_mode_bl = bl;
 		} else {
 			pr_warn("should be in calib mode\n");
 		}
@@ -5676,9 +5679,6 @@ int mdss_mdp_calib_mode(struct msm_fb_data_type *mfd,
 		return -EINVAL;
 	mutex_lock(&mdss_pp_mutex);
 	mfd->calib_mode = cfg->calib_mask;
-	mutex_lock(&mfd->bl_lock);
-	mfd->calib_mode_bl = mfd->bl_level;
-	mutex_unlock(&mfd->bl_lock);
 	mutex_unlock(&mdss_pp_mutex);
 	return 0;
 }
